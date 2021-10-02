@@ -25,6 +25,7 @@ Apart from that HoneySpy provides a super-server functionality (similar to
 inetd for e.g.). Simple modules are available to simulate vulnerable or weird
 services. 
 
+Full project description and usage is presented in this [document](docs/honeyspy-pl.pdf) (in Polish).
 
 ## Requirements
 * Perl 5.6 or newer
