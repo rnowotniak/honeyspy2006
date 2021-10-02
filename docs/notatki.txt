@@ -1,0 +1,120 @@
+
+przyk³adowa konfiguracja moze byc taka:
+	brctl addbr honey
+	brctl addif honey eth0
+	ifconfig eth0 0
+	ifconfig honey 192.168.66.11
+	ifconfig honey up
+	route add -net 192.168.0.0/16 dev honey
+	route add -net 0/0 gateway 192.168.6.1 dev honey
+
+	uruchamiany p0f POC w jednym oknie
+	uruchamiamy ./main -m -c master.conf jako root
+	uruchamiamy ./console 127.0.0.1 9000 w  trzecim oknie
+	dodajemy ip aliasy
+		addIPAlias 192.168.66.99
+		addIPAlias 192.168.66.100
+		addIPAlias 192.168.66.101
+	ustawiamy fingerprinty
+		setFingerprint 192.168.66.99,tru64_v5
+		setFingerprint 192.168.66.100,solaris8
+		setFingerprint 192.168.66.101,freebsd 
+	ustawiamy adresy MAC:
+		setMAC 192.168.66.99,00:0B:CD:BA:CA:DA
+		setMAC 192.168.66.100,00:14:4F:BA:AA:AD
+		setMAC 192.168.66.101,00:0A:28:01:02:03
+	dodajemy us³ugi:
+		addService 192.168.66.99,tcp,25,services/smtp
+		addService 192.168.66.100,tcp,79,services/smtp
+		addService 192.168.66.100,tcp,80,services/openproxy
+		addService 192.168.66.101,tcp,110,services/pop3
+
+
+
+
+przy konfiguracji jadra z nasza modyfikacja laty ippersonality
+nalezy wylaczyc modul stealth
+
+
+
+czemu gdzie poza recvFromPeer pojawia siê u nas thaw jeszcze?
+
+chyba gdy nie mozna polaczyc sie z masterem, to nie powinno sie
+zwlekac z wejsciem do glownej petli.
+
+
+Dodac trzeba jeszcze koniecznie to:
+ebtables -t nat  -A POSTROUTING -p ipv4 --ip-src 192.168.66.100 -j snat --to-source 00:03:BA:01:02:03
+OK zrobione
+
+
+my-ca.pem to certifykat CA, je¶li chcemy sprawdzic, czy druga strona ma certyfikat
+podpisany przez tego CA
+
+SSL_use_cert okresla, czy klient pokazuje ze tez ma certyfikat
+SSL_verify_mode okresla, czy sprawdzac podpisy na certyfikacie drugiej strony
+SSL_ca_file (my-ca.pem). tym certyfikatem musi byc podpisany cert. drugiej strony
+SSL_key_file
+SSL_cert_file
+
+
+
+na serwerze centeralnym musi byc certifykat oraz para kluczy
+ten certyfikat musza miec sensory
+
+kazdy sensor musi miec swoj certyfikat podpisany certyfikatem centralnego
+z pola Common Name certyfikatu laczaceo sie sensora centralny odczytuje
+symboliczna nazwe tego sensora.
+Ta nazwa nie mogla byc sfalszowana, bo jest w certyfikacie podpisanym
+certyfikatem centralnego.
+
+
+jest potrzebny klucz i certyfika urzêdu certyfikacyjnego
+	utworzyc klucz
+	usunac fraze koduj±c±
+	utworzyc certyfikat podpisany nim samym
+
+
+na serwerze:
+	Utworzyc klucz prywatny:
+
+	openssl genrsa -des3 -out master-key.enc 1024
+	passphrase: test
+
+	Usuniecie frazy kodujacej:
+	openssl rsa -in master-key.enc -out master-key.pem
+
+	Utworzyc certyfikat dla tego klucza podpisany nim samym:
+	openssl req -new -x509 -days 365 -key master-key.pem -out master-cert.pem
+
+	
+/*
+	utworzyc pro¶bê o podpisanie certyfikatu
+		openssl req -new -key master-key.pem -out server.csr
+
+	wystawic certyfikat serwerowi za pomoca certyfikatu urzedu certifykacyjnego
+		openssl ca -policy policy_anything -keyfile ca-key.pem \
+			-cert ca-cert.pem -in server.csr -out master-cert.pem
+*/
+
+	Informacje o certyfikacie pokazuje:
+		openssl x509 -noout -text -in master-cert.pem
+
+	Informacje o kluczu pokazuje:
+		openssl rsa -noout -text -in master-key.pem
+
+na kliencie:
+	utworzyc klucz prywatny
+		openssl genrsa -des3 -out sensor1-key.enc 1024
+		openssl rsa -in sensor1-key.enc -out sensor1-key.pem
+	utworzyc pro¶bê o podpisanie certyfikatu
+		openssl req -new -key sensor1-key.pem -out sensor1.csr
+	centrum certyfikacyjne wystawia certyfikat sensorowi certyfikatem serwera
+		openssl ca -policy policy_anything -keyfile master-key.pem \
+			-cert master-cert.pem -in sensor1.csr -out sensor1-cert.pem
+		[trzeba jeszcze utworzyc pusty katalog np demoCA, pusty plik demoCA/index.txt i 01 > demoCA/serial]
+
+
+http://www.modssl.org/docs/2.8/ssl_faq.html#ToC24
+http://www.tldp.org/HOWTO/SSL-Certificates-HOWTO/x64.html
+

@@ -1,8 +1,16 @@
-HoneySpy - Advanced Honeypot Environment
-----------------------------------------
+# HoneySpy - Advanced Honeypot Environment
+
+## Authors
+* Robert Nowotniak
+* Michal Wysokinski
+
+## Description
+
 Honeypot is a tool helpful in early intrusion detection and prevention systems
 and useful for analysis of uknownk security flaws, 0-day exploits, cracker's
 tools and such.
+
+![Honeyspy diagram](docs/deployment-diagram.png)
 
 HoneySpy project allows you to create, setup, maintain and monitor the network
 of honeypot servers. It's written in general in Perl.
@@ -17,14 +25,11 @@ Apart from that HoneySpy provides a super-server functionality (similar to
 inetd for e.g.). Simple modules are available to simulate vulnerable or weird
 services. 
 
-For current documentation please visit project's homepage:
-	http://honeyspy.berlios.de/
 
-Requirements
-------------
-	o Perl 5.6 or newer
-	o Log::Log4perl
-	o IO::Socket::SSL
-	o NetPacket
-	o Net::Pcap
+## Requirements
+* Perl 5.6 or newer
+* Log::Log4perl
+* IO::Socket::SSL
+* NetPacket
+* Net::Pcap
 
