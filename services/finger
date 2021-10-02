@@ -1,0 +1,51 @@
+#!/usr/bin/perl -w
+# HoneySpy -- advanced honeypot environment
+# Copyright (C) 2005  Robert Nowotniak
+# Copyright (C) 2005  Michal Wysokinski
+# 
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+
+use strict;
+use IO::Handle;
+
+$| = 1;
+
+my $username = <STDIN>;
+exit 0 unless $username;
+chomp $username;
+
+open(LOG, '>&=3');
+LOG->autoflush(1);
+
+print LOG "Finger request for user: $username\n";
+
+print <<EOF;
+
+Welcome to Linux version 2.6.12-gentoo-r10 at serwer.honeyspy !
+ 12:53:22 up  1:48, 10 users,  load average: 0.20, 0.10, 0.08
+
+EOF
+
+print <<EOF;
+Login: $username                              Name: (null)
+Directory: /home/$username                    Shell: /bin/bash
+On since Sun Nov  6 11:05 (CET) on tty1    1 hour 47 minutes idle
+     (messages off)
+On since Sun Nov  6 12:30 (CET) on pts/0   4 minutes 50 seconds idle
+No mail.
+EOF
+
+

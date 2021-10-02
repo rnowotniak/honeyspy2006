@@ -1,0 +1,2017 @@
+diff -urN iptables-1.3.4.orig/pers/example.conf iptables-1.3.4/pers/example.conf
+--- iptables-1.3.4.orig/pers/example.conf	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/example.conf	2005-12-03 18:14:06.000000000 +0100
+@@ -0,0 +1,247 @@
++/* -*-c-*-
++   IP Personality -- Sample config file
++*/
++
++/* This defines an id for the following configuration (up to
++   20 characters). This is used to know what configuration is
++   actually used by a rule. The "emulated" OS name might be a
++   good choice :)
++*/
++id "Example";
++
++/* Generic TCP mangling options */
++tcp {
++  /* Do we want to mangle packets related to incoming connections ? */
++  incoming yes;
++
++  /* Do we want to mangle packets related to outgoing connections ? */
++  outgoing yes;
++
++  /* A maximal window size allowed.
++     set to 0 or comment out to disable window size mangling. */
++  max-window 0;
++}
++
++/* ISN Generation and Sequence Number Mangling options */
++tcp_isn {
++  /* Type of the emulated ISN Generator:
++     The following are available:
++     - type asis;
++         Do not change the sequence numbers.
++     - type fixed-inc <number>;
++         Uses a fixed-increment generator incrementing ISN by the given
++	 amount. A value of 0 emulates a constant ISN generator.
++     - type random-inc <number>;
++         Uses a random-increment generator incrementing ISN by a randomly
++	 choosen number less than the given amount.
++     - type true-random;
++         Uses a true random ISN generator.
++     - type builtin;
++         Uses the OS builtin generator.
++     - type time-inc <number>;
++         Uses a time-dependant increment using the specified frequency.
++         (This has the host HZ value granularity)
++         For example, to mimic the recommended ISN from rfc793 (one
++         increment every 4 micro-seconds), one would use time-inc 25000.
++  */
++  type true-random;
++  
++  /* Initial value for the emulated generator.
++     Only relevant for fixed-inc and random-inc generators. Can be set
++     to a specific value or to 'random' which will be choosen at rule
++     loading time */
++  initial-value random;
++}
++
++/* IPID Generation Options */
++ip_id {
++  /* Type of the generator. The same generator as for ISN are available
++     plus broken-inc which is analog to fixed-inc but keeping ids in 
++     little endian order in the packet (to mimic a miscrosoft bug...) */
++  type broken-inc 1;
++  initial-value random;
++}
++
++/* TCP Options rewriting options */
++tcp_options {
++  /* Do we want to keep unknown options (ones that can't be tested/manipulated
++     below) ? */
++  keep-unknown yes;
++
++  /* Do we want to keep known options that we didn't test/use below ? */
++  keep-unused yes;
++
++  /* Do we want to rewrite packets that do not belong to an established
++     connection ? By default, packets are only rewriten if they match the
++     connection settings of the tcp section. */
++  isolated-packets yes;
++
++  /* Do we want to scale time-stamps on local packets, so they follow
++     a specific frequency (bu default the host HZ value) ? */
++  timestamp-scale 1000;
++
++  /* Defines the Options rewriting code.
++     This code operates on a an empty option buffer, populating it progressively
++     with options from the original packet.
++     
++     Syntax is C like, with the following rules:
++     - a copy(option) instruction causes that option's value (if defined in the
++     original packet) to be inserted in the new options list.
++     - if tests can use the following conditions:
++       * option(opt) is true if  option is present in the original packet.
++       * flags(flag) is true if the flag is set in the original packet.       
++       * flags(flag1|flag2|..) is true if one of flag1, flag2.. is set in the
++         original packet.
++       * flags(flag1&flag2&..) is true if all of flag1, flag2.. are set in the
++         original packet.
++       * (!condition) is true if condition is false.
++
++     Conditions can be grouped and ordonned using the usual ||, &&, ( and )
++     operators. Note that to check multiple flags it is more efficient to
++     group flags together as a single condition instead of multiple one flag
++     conditions.
++
++     The following option names are known: eol, nop, wss, wscale, sackOK, sack
++       echo, echoreply, timestamp, pocOK, pocSP, CC, CC.NEW, C.ECHO,
++       acreq and acdata.
++     The following tcp flags are known: syn, ack, fin, urg, push, ece, cwr,
++       bog1, bog2, bog3, bog4.
++     Refer to RFC793, RFC1072, RFC1146, RFC1323, and RFC1693 for more info
++     about those.
++  */
++  code { // sample code
++    if (flags(syn)) {
++      if (option(sackOK))
++	copy(sackOK);
++      else {
++	copy(nop); copy(nop);
++      }
++      copy(timestamp);
++      copy(mss);
++    } else {
++      if (option(sack))
++	copy(sack);
++      else {
++	copy(nop); copy(nop);
++      }
++      copy(timestamp);
++    }
++  }
++}
++
++tcp_decoy {
++  /* defines "decoy" behavior. The following code matches weird packets
++     and can decide to let them go asis, to reply to them or to drop them.
++
++     Syntax is like for options rewritting code, with the following new
++     instructions:
++     - insert(option, value): adds the option and define its value in the
++     new option list. Supported options for this are mss, wscale, timestamp.
++     value can be a number, or 'this' to indicate a value fitting the original 
++     packet value, or 'this + number' to change offset.
++     - set(argument, value): works the same as insert for non options
++     arguments. Supported args are: df, win, ack and flags.
++     For flags, value must be a valid combinaison of tcp flags as for
++     option rewritting code.
++     - drop: ends processing and drops packet.
++     - accept: ends processing and go on normally with packet.
++     - reply: build a reply with the current option list and the current
++     attributes, and send it. The original packet is dropped.
++
++     The following new conditions can be used:
++     - listen: true if the destination port is open on belocalhost.
++     - ack(val): true if the packet ack value is val.
++  */
++  code { /* This is taken from QNX fingerprints */
++    if (option(mss)) { /* nmap has mss on all of its pkts */
++      set(df, 0);
++      if (listen) {
++	if (flags(syn&ece)) { /* nmap test 1 */
++	  set(win, 7950);
++	  set(ack, this + 1);
++	  set(flags, ack|syn);
++	  insert(mss, this+1);
++	  reply;
++	}
++	if (flags(null)) /* nmap test 2 */
++	  drop; 
++	if (flags(syn&fin&urg&push)) { /* nmap test 3 */
++	  set(win, 7950);
++	  set(ack, 2);
++	  set(flags, ack);
++	  reply;
++	}
++	if (ack(0) && flags(ack) && !flags(syn|push|urg|rst)) { /* nmap test 4 */
++	  set(win, 8192);
++	  set(ack, 2);
++	  set(flags, rst);
++	  reply;
++	}
++      } else {
++	set(win, 0);
++	if (flags(syn) && !flags(ack)) { /* nmap test 5 */
++	  set(ack, this + 1);
++	  set(flags, ack|rst);
++	  reply;
++	}
++	if (ack(0) && flags(ack) && !flags(syn|push|urg|rst)) { /* nmap test 6 */
++	  set(ack, 2);
++	  set(flags, rst);
++	  reply;
++	}
++	if (flags(fin&push&urg)) { /* nmap test 7 */
++	  set(ack, this);
++	  set(flags, ack|rst);
++	  reply;
++	}
++      }
++    }
++  }
++}
++
++/* ICMP unreach for UDP to closed port mangling options
++   (comment out whole section to disable mangling) */
++udp_unreach {
++  /* send an icmp unreach for a udp to closed port ? */
++  reply yes;
++
++  /* should the df bit be set on the generated icmp */
++  df yes;
++
++  /* maximum len of the icmp unreach generated (how many of the
++     original packet to keep at most). */
++  max-len 500;
++
++  /* type of service of icmp packet */
++  tos 0;
++
++  /* if some fields of the original packet need to be changed
++     specify them here.
++     For every field (except length), the answer can be either:
++      - same (not changed; this is the default).
++      - zero (set to zero/fill with zeroes).
++      - mangle (replace by a different value).
++  */
++  mangle-original {
++    /* what should be the length in the old ip header ?
++       ('same' or value) */
++    ip-len 0;
++    
++    /* should the initial ip id be changed ? */
++    ip-id same;
++    
++    /* should the initial ip cheksum be changed ? */
++    ip-csum same;
++    
++    /* what should be the length in the old udp header ?
++       ('same' or value) */
++    udp-len 0;
++    
++    /* should the initial udp checksum be changed ? */
++    udp-csum same;
++    
++    /* should the initial udp data be changed ? */
++    udp-data mangle;
++  }
++}
++
+diff -urN iptables-1.3.4.orig/pers/libipt_PERS.c iptables-1.3.4/pers/libipt_PERS.c
+--- iptables-1.3.4.orig/pers/libipt_PERS.c	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/libipt_PERS.c	2005-12-03 18:18:21.000000000 +0100
+@@ -0,0 +1,237 @@
++/*
++ * IP Personality
++ *   libipt_PERS.c - Shared library extension of iptables for PERS
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: libipt_PERS.c,v 1.15 2001/07/19 23:43:25 g_roualland Exp $
++ *
++ */
++
++#include <stdio.h>
++#include <netdb.h>
++#include <string.h>
++#include <stdlib.h>
++#include <getopt.h>
++#include <limits.h>
++#include <iptables.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++#include "pers.h"
++
++#ifndef NETFILTER_VERSION
++#define NETFILTER_VERSION "1.3.4"
++#endif
++
++/* Function which prints out usage message. */
++static void
++help(void)
++{
++	printf(
++"PERS (personality) v%s options:\n"
++" --conf file			reads configuration from file.\n"
++" --tweak {src|dst}		sets which part of the rule to tweak.\n"
++" --local			destination is local, enables decoy for it.\n",
++NETFILTER_VERSION);
++}
++
++static struct option opts[] = {
++  { "conf", 1, 0, '1' },
++  { "tweak", 1, 0, '2' },
++  { "local", 0, 0, '3' },
++  { 0 }
++};
++
++struct optnames {
++  char * text;
++  u_int32_t code;
++};
++
++static struct optnames tweak_opts[] = {
++  { "src", IP_PERS_TWEAK_SRC },
++  { "dst", IP_PERS_TWEAK_DST },
++  { NULL, 0 }
++};
++
++/* Initialize the target. */
++static void
++init(struct ipt_entry_target *t, unsigned int *nfcache)
++{
++	struct ip_pers *pers = (struct ip_pers *)t->data;
++
++	memset(pers, 0, sizeof(struct ip_pers));
++	pers->isn_type = IP_PERS_ASIS;
++	pers->ipid_type = IP_PERS_ASIS;
++
++	/* Can't cache this ?? */
++	*nfcache |= NFC_UNKNOWN;
++}
++
++/* Function which parses command options; returns true if it
++   ate an option */
++static int
++parse(int c, char **argv, int invert, unsigned int *flags,
++      const struct ipt_entry *entry,
++      struct ipt_entry_target **target)
++{
++	int i, alen;
++	struct ip_pers *pers
++		= (struct ip_pers *)(*target)->data;
++	struct asmbuf abuf;
++
++	switch (c) {
++	case '1':
++	  if (pers->id[0])
++	    exit_error(PARAMETER_PROBLEM,
++		       "Only one configuration file allowed.");
++
++	  yyfile = optarg;
++	  yypers = pers;
++	  yyin = fopen(yyfile, "r");
++
++	  if (!yyin)
++	    exit_error(PARAMETER_PROBLEM,
++		       "Cannot read %s.", yyfile);
++	  
++	  yyparse();
++	  fclose(yyin);
++	  
++	  if (!pers->id[0])
++	    exit_error(PARAMETER_PROBLEM,
++		       "Bad configuration file.");
++	    
++	  if (yycode[0] && ((alen = asm_gen(&abuf, yycode[0]))>0)) {
++	    free_symtree(yycode[0]);
++	    yycode[0] = NULL;
++	    
++	    if (alen <= IP_PERS_MAX_CODE) { 
++	      asm_optimize(abuf.code, alen);
++	      pers->opt_prog.prog_len = alen;
++	      memcpy(pers->opt_prog.instr, abuf.code, alen * sizeof(u_int32_t));
++	    } else {
++	      exit_error(PARAMETER_PROBLEM,
++			 "Compiled code is too big. Increase IP_PERS_MAX_CODE.");
++	    }
++	  } else
++	    pers->opt_prog.prog_len = 0;
++
++	  if (yycode[1] && ((alen = asm_gen(&abuf, yycode[1]))>0)) {
++	    free_symtree(yycode[1]);
++	    yycode[1] = NULL;
++	    
++	    if (alen <= IP_PERS_MAX_CODE) { 
++	      asm_optimize(abuf.code, alen);
++	      pers->decoy_prog.prog_len = alen;
++	      memcpy(pers->decoy_prog.instr, abuf.code, alen * sizeof(u_int32_t));
++	    } else {
++	      exit_error(PARAMETER_PROBLEM,
++			 "Compiled code is too big. Increase IP_PERS_MAX_CODE.");
++	    }
++	  } else
++	    pers->decoy_prog.prog_len = 0;
++	  
++	  return 1;
++	case '2':
++	  i = 0;
++	  while (tweak_opts[i].text) {
++	    if (!strcasecmp(tweak_opts[i].text, optarg)) {
++	      pers->tweak_type = tweak_opts[i].code;
++	      break;
++	    }
++	    i++;
++	  }
++	  if (!tweak_opts[i].text)
++	    exit_error(PARAMETER_PROBLEM,
++		       "Unknown TWEAK mode.\n");
++	  return 1;
++	case '3':
++	  pers->local = 1;
++	  return 1;
++	}
++	return 0;
++}
++
++/* Final check; don't care. */
++static void final_check(unsigned int flags)
++{
++}
++
++/* Prints out the targinfo. */
++static void
++print(const struct ipt_ip *ip,
++      const struct ipt_entry_target *target,
++      int numeric)
++{
++	struct ip_pers *pers
++		= (struct ip_pers *)target->data;
++
++	switch(pers->tweak_type) {
++	case IP_PERS_TWEAK_SRC:
++	  printf("tweak:src ");
++	  break;
++	case IP_PERS_TWEAK_DST:
++	  printf("tweak:dst ");
++	  break;
++	}
++	if (pers->local)
++	  printf("local ");
++	if (pers->id[0])
++	  printf("id:%s ", pers->id);
++}
++
++/* Saves the union ipt_targinfo in parsable form to stdout. */
++static void
++save(const struct ipt_ip *ip, const struct ipt_entry_target *target)
++{
++	struct ip_pers *pers
++		= (struct ip_pers *)target->data;
++
++	switch(pers->tweak_type) {
++	case IP_PERS_TWEAK_SRC:
++	  printf("--tweak src ");
++	  break;
++	case IP_PERS_TWEAK_DST:
++	  printf("--tweak dst ");
++	  break;
++	}
++	if (pers->local)
++	  printf("--local ");
++	if (pers->id[0])
++	  printf("--conf %s.conf ", pers->id);
++}
++
++struct iptables_target pers_target
++= { NULL,
++    "PERS",
++	 0,
++    NETFILTER_VERSION,
++    IPT_ALIGN(sizeof(struct ip_pers)),
++    IPT_ALIGN(sizeof(struct ip_pers)),
++    &help,
++    &init,
++    &parse,
++    &final_check,
++    &print,
++    &save,
++    opts
++};
++
++void _init(void)
++{
++	register_target(&pers_target);
++}
+diff -urN iptables-1.3.4.orig/pers/Makefile iptables-1.3.4/pers/Makefile
+--- iptables-1.3.4.orig/pers/Makefile	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/Makefile	2005-12-03 18:14:06.000000000 +0100
+@@ -0,0 +1,35 @@
++#! /usr/bin/make
++
++EXTRA_INSTALLS+=$(DESTDIR)$(LIBDIR)/iptables/libipt_PERS.so
++PERSOBJ=pers/pers_asm_sh.o pers/pers_tab_sh.o pers/pers_yy_sh.o
++EXTRAS+=$(PERSOBJ) pers/libipt_PERS.so pers/libipt_PERS_sh.o\
++        pers/pers_yy.c pers/pers_tab.c pers/pers_tab.h \
++        pers/perscc.o pers/perscc
++LEX=flex
++LEXFLAGS=
++YACC=bison
++YACCFLAGS=-d
++
++ifndef TOPLEVEL_INCLUDED
++local:
++	cd .. && $(MAKE) $(SHARED_LIBS)
++endif
++
++$(DESTDIR)$(LIBDIR)/iptables/libipt_PERS.so: pers/libipt_PERS.so
++	@[ -d $(DESTDIR)$(LIBDIR)/iptables ] || mkdir -p $(DESTDIR)$(LIBDIR)/iptables
++	cp $< $@
++
++pers/perscc: pers/perscc.o $(PERSOBJ)
++
++pers/pers_tab.h: pers/pers_tab.c
++pers/pers_tab.c: pers/pers.y pers/pers.h
++	$(YACC) $(YACCFLAGS) -o $@ $<
++
++pers/pers_yy.c: pers/pers.l
++	$(LEX) $(LEXFLAGS) -o$@ $<
++
++pers/pers_yy.o: pers/pers_yy.c pers/pers.h pers/pers_tab.h
++pers/pers_tab.o: pers/pers_tab.c pers/pers_tab.h pers/pers.h
++
++pers/libipt_PERS.so: pers/libipt_PERS_sh.o $(PERSOBJ)
++	$(LD) -shared -o $@ $< $(PERSOBJ)
+diff -urN iptables-1.3.4.orig/pers/pers_asm.c iptables-1.3.4/pers/pers_asm.c
+--- iptables-1.3.4.orig/pers/pers_asm.c	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/pers_asm.c	2005-12-03 18:14:06.000000000 +0100
+@@ -0,0 +1,268 @@
++/*
++ * IP Personality
++ *   pers_asm.c - Code generation routines
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: pers_asm.c,v 1.7 2001/07/22 01:10:22 g_roualland Exp $
++ *
++ */
++
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include "pers.h"
++
++static void free_testtree(struct test * test) {
++  if (test->test[0])
++    free_testtree(test->test[0]);
++  if (test->test[1])
++    free_testtree(test->test[1]);
++
++  free(test);
++}
++
++void free_symtree(struct symbol * sym) {
++  struct symbol * sym2;
++  
++  while(sym) {
++    if (sym->cond[0])
++      free_symtree(sym->cond[0]);
++    if (sym->cond[1])
++      free_symtree(sym->cond[1]);
++    if (sym->type == INS_TYPE_TEST)
++      free_testtree(sym->test);
++
++    sym2 = sym->next;
++    free(sym);
++    sym = sym2;
++  }
++}
++
++static void asm_addins(struct asmbuf * abuf, int pos, int ins) {
++  if (pos >= abuf->size) {
++    u_int32_t * newbuf =
++      (u_int32_t *) realloc((void *) abuf->code, (abuf->size << 1) * sizeof(u_int32_t));
++    if (newbuf) {
++      memset((void *) newbuf + abuf->size * sizeof(u_int32_t), 0,
++	     abuf->size * sizeof(u_int32_t));
++      abuf->code = newbuf;
++      abuf->size <<= 1;
++    } else {
++      fprintf(stderr, "not enough memory assembling code.\n");
++      exit(EXIT_FAILURE);
++    }
++  }
++  abuf->code[pos] = ins;
++}
++
++static int asm_testtree(struct asmbuf * abuf, struct test * test, int pos) {
++  int cur = 0, jmp = 0;
++  
++  switch (test->type) {
++  case TEST_OR:
++    cur += asm_testtree(abuf, test->test[0], pos);
++    asm_addins(abuf, pos + cur, IP_PERS_JMP |
++	       ((pos + cur + 2) & IP_PERS_DATA)); /* jump to second part of or */
++    jmp = cur + 1; /* reserve room for jump at end of test (true case) */
++    cur += 2;
++    cur += asm_testtree(abuf, test->test[1], pos + cur);
++    asm_addins(abuf, pos + jmp, IP_PERS_JMP |
++	       ((pos + cur + 1) & IP_PERS_DATA)); /* jump to true part */
++    break;
++  case TEST_AND:
++    cur += asm_testtree(abuf, test->test[0], pos);
++    jmp = cur++; /* reserve room for false case */
++    cur += asm_testtree(abuf, test->test[1], pos + cur);
++    asm_addins(abuf, pos + jmp, IP_PERS_JMP |
++	       ((pos + cur) & IP_PERS_DATA)); /* jump to false part */
++    break;
++  case TEST_TCPOPT:
++    asm_addins(abuf, pos, IP_PERS_TEST | IP_PERS_TEST_OPTION |
++	       (test->operand & IP_PERS_DATA));
++    cur++;
++    break;
++  case TEST_TCPFLAG:
++  case TEST_TCPFLAG_ANY:
++    asm_addins(abuf, pos, IP_PERS_TEST | IP_PERS_TEST_FLAG_ANY |
++	       (test->operand & IP_PERS_DATA));
++    cur++;
++    break;
++  case TEST_TCPFLAG_ALL:
++    asm_addins(abuf, pos, IP_PERS_TEST | IP_PERS_TEST_FLAG_ALL |
++	       (test->operand & IP_PERS_DATA));
++    cur++;
++    break;
++  case TEST_LISTEN:
++    asm_addins(abuf, pos, IP_PERS_TEST | IP_PERS_TEST_LISTEN);
++    cur++;
++    break;
++  case TEST_ACK:
++    asm_addins(abuf, pos, IP_PERS_TEST | IP_PERS_TEST_ACK |
++	       (test->operand & IP_PERS_DATA));
++    cur++;
++    break;
++  default:
++    fprintf(stderr, "instruction %d: invalid test %d -- test always true\n",
++	    pos, test->type);
++    asm_addins(abuf, pos, IP_PERS_JMP | ((pos + 2) & IP_PERS_DATA)); /* skip else case */	
++    return 1;
++  }
++
++  if (test->not) { // inverse test
++    asm_addins(abuf, pos + cur, IP_PERS_JMP | ((pos + cur +2) & IP_PERS_DATA));
++    return cur+1;
++  } else
++    return cur;
++}
++
++static int asm_symtree(struct asmbuf * abuf, struct symbol * sym, int base) {
++  int cur = 0, pos = base, jmp[2] = { 0, 0 };
++  int tmp;
++  
++  while(sym) {
++    switch(sym->type) {
++    case INS_TYPE_RET:
++      tmp = -1;
++      switch(sym->option) {
++      case INS_OPT_RET_ACCEPT:
++	tmp = IP_PERS_ACCEPT;
++	break;
++      case INS_OPT_RET_REPLY:
++	tmp = IP_PERS_REPLY;
++	break;
++      case INS_OPT_RET_DROP:
++	tmp = IP_PERS_DROP;
++	break;
++      default:
++	fprintf(stderr, "invalid option %d for RET, ignored.\n", sym->option);
++      }
++      if (tmp>=0) {
++	asm_addins(abuf, pos, IP_PERS_RET | tmp);
++	cur = 1;
++      }
++      break;
++    case INS_TYPE_SET:
++      tmp = -1;
++      switch(sym->option & ~(INS_OPT_FROM_THIS)) {
++      case INS_OPT_SET_FLAGS:
++	tmp = IP_PERS_SET_FLAGS;
++	break;
++      case INS_OPT_SET_DF:
++	tmp = IP_PERS_SET_DF;
++	break;
++      case INS_OPT_SET_ACK:
++	tmp = IP_PERS_SET_ACK;
++	break;
++      case INS_OPT_SET_WIN:
++	tmp = IP_PERS_SET_WIN;
++	break;
++      default:
++	fprintf(stderr, "invalid option %d for SET, ignored.\n", sym->option);
++      }
++      if (tmp>=0) {
++	if (sym->option & INS_OPT_FROM_THIS)
++	  tmp |= IP_PERS_SET_FROM_THIS;
++	asm_addins(abuf, pos, IP_PERS_SET | tmp | (sym->operand & IP_PERS_DATA));
++	cur = 1;
++      }
++      break;
++    case INS_TYPE_INS:
++      tmp = -1;
++      switch (sym->option & ~(INS_OPT_FROM_THIS)) {
++      case TCPOPT_WSCALE:
++	tmp = IP_PERS_SET_WSCALE;
++	break;
++      case TCPOPT_MSS:
++	tmp = IP_PERS_SET_MSS;
++	break;
++      case TCPOPT_TIMESTAMP:
++	tmp = IP_PERS_SET_TIMESTAMP;
++	break;
++      default:
++	fprintf(stderr, "invalid option %d for INS, ignored.\n", sym->option);
++      }
++      if (tmp>=0) {
++	if (sym->option & INS_OPT_FROM_THIS)
++	  tmp |= IP_PERS_SET_FROM_THIS;
++	asm_addins(abuf, pos, IP_PERS_SET | tmp | (sym->operand & IP_PERS_DATA));
++	asm_addins(abuf, pos + 1, IP_PERS_PUT | IP_PERS_PUT_INS |
++		   ((sym->option & ~(INS_OPT_FROM_THIS)) & IP_PERS_DATA));
++	cur = 2;
++      }
++      break;
++    case INS_TYPE_COPY:
++      asm_addins(abuf, pos, IP_PERS_PUT | IP_PERS_PUT_COPY |
++		 (sym->operand & IP_PERS_DATA));
++      cur = 1;
++      break;
++    case INS_TYPE_NOP:
++      break;
++    case INS_TYPE_TEST:
++      cur += asm_testtree(abuf, sym->test, pos);
++      jmp[0] = cur++; /* reserve room for "else" jump on pos+cur */
++      if (sym->cond[0])
++	cur += asm_symtree(abuf, sym->cond[0], pos + cur);
++      if (sym->cond[1]) {
++	jmp[1] = cur++; /* reserve room for jmp at end of true case */
++	asm_addins(abuf, pos + jmp[0],
++		   IP_PERS_JMP | ((pos + cur) & IP_PERS_DATA)); /* else case starts here */
++	cur += asm_symtree(abuf, sym->cond[1], pos + cur);
++	asm_addins(abuf, pos + jmp[1],
++		   IP_PERS_JMP | ((pos + cur) & IP_PERS_DATA)); /* end of test here */
++      } else
++	asm_addins(abuf, pos + jmp[0],
++		   IP_PERS_JMP | ((pos + cur) & IP_PERS_DATA)); /* end of test and else case */
++      break;
++    default:
++      fprintf(stderr, "invalid instruction %d, ignored.\n", sym->type);
++      break;
++    }
++    sym = sym->next;
++    pos += cur;
++    cur = 0;
++  }
++  return (pos - base);
++}
++
++int asm_gen(struct asmbuf * abuf, struct symbol * sym) {
++  abuf->size = CODE_BASESIZE;
++  abuf->code = (u_int32_t *) calloc(abuf->size, sizeof(u_int32_t));
++
++  if (abuf->code) {
++    return asm_symtree(abuf, sym, 0);
++  } else {
++    fprintf(stderr, "cannot allocate asm memory\n");
++    exit(EXIT_FAILURE);
++  }
++}
++
++void asm_optimize(u_int32_t * code, int len) {
++  int i = len;
++  int ojmp, njmp;
++
++  /* simple optimization: short cut consecutive jumps */
++  while(--i>=0)
++    if ((code[i] & IP_PERS_INST) == IP_PERS_JMP) {
++      ojmp = njmp = code[i] & IP_PERS_DATA;
++      while((njmp >= 0) && (njmp < len) && ((code[njmp] & IP_PERS_INST) == IP_PERS_JMP))
++	njmp = code[njmp] & IP_PERS_DATA;
++      if (njmp != ojmp)
++	code[i] = IP_PERS_JMP | (njmp & IP_PERS_DATA);
++    }
++}
+diff -urN iptables-1.3.4.orig/pers/perscc.c iptables-1.3.4/pers/perscc.c
+--- iptables-1.3.4.orig/pers/perscc.c	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/perscc.c	2005-12-03 18:14:06.000000000 +0100
+@@ -0,0 +1,467 @@
++/*
++ * IP Personality
++ *   perscc.c - An external config file interpreter/compiler.
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: perscc.c,v 1.16 2001/07/22 01:10:22 g_roualland Exp $
++ *
++ */
++
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include "pers.h"
++
++char * tcpopts[] = {
++  "eol",
++  "nop",
++  "mss",
++  "wscale",
++  "sackOK",
++  "sack",
++  "echo",
++  "echoreply",
++  "timestamp",
++  "pocOK",
++  "pocSP",
++  "CC",
++  "CC.NEW",
++  "CC.ECHO",
++  "acreq",
++  "acdata"
++};
++
++char * tcpopt(int n) {
++  static char buf[20];
++  
++  if (n>=0 && n<sizeof(tcpopts))
++    return tcpopts[n];
++  else
++    snprintf(buf, sizeof(buf), "tcpopt(%d)", n);
++  return buf;
++}
++
++char * setarg(int n) {
++  static char buf[20];
++
++  switch(n) {
++  case INS_OPT_SET_ACK:
++    return "ack";
++  case INS_OPT_SET_DF:
++    return "df";
++  case INS_OPT_SET_WIN:
++    return "win";
++  default:
++    snprintf(buf, sizeof(buf), "tcpopt(%d)", n);
++    return buf;
++  }
++}
++
++char * tcpflags(int flags, char s) {
++  static char buf[100];
++  char sep[2];
++  int i = 0;
++  struct {
++    char * txt;
++    int bit;
++  } flagnames[] = {
++    { "fin", TH_FIN },
++    { "syn", TH_SYN },
++    { "ack", TH_ACK },
++    { "urg", TH_URG },
++    { "push", TH_PUSH },
++    { "rst", TH_RST },
++    { "ece", TH_ECE },
++    { "cwr", TH_CWR },
++    { "bog1", TH_BOG1 },
++    { "bog2", TH_BOG2 },
++    { "bog3", TH_BOG3 },
++    { "bog4", TH_BOG4 },
++    { NULL, 0 }
++  };
++  
++  if (!flags)
++    return "null";
++
++  buf[0]='\0';
++  sep[0] = s; sep[1] = '\0';
++  
++  while(flagnames[i].txt) {
++    if (flags & flagnames[i].bit) {
++      strcat(buf, sep);
++      strcat(buf, flagnames[i].txt);
++    }
++    i++;
++  }
++  return buf+1;
++}
++
++int dump_testtree(struct test * test) {
++  int nb = 1;
++  
++  if (test->not)
++    printf("!");
++  
++  switch(test->type) {
++  case TEST_OR:
++  case TEST_AND:
++    if (test->test[0]) {
++      if (test->test[0]->type == TEST_OR || test->test[0]->type == TEST_AND)
++	printf("(");      
++      nb += dump_testtree(test->test[0]);
++      if (test->test[0]->type == TEST_OR || test->test[0]->type == TEST_AND)
++	printf(")");
++    }
++    printf(test->type == TEST_OR ? " || " : " && ");
++    if (test->test[1]) {
++      if (test->test[1]->type == TEST_OR || test->test[1]->type == TEST_AND)
++	printf("(");      
++      nb += dump_testtree(test->test[1]);
++      if (test->test[1]->type == TEST_OR || test->test[1]->type == TEST_AND)
++	printf(")");
++    }
++    break;
++  case TEST_TCPFLAG:
++  case TEST_TCPFLAG_ANY:
++    printf("flags(%s)", tcpflags(test->operand, '|'));
++    break;
++  case TEST_TCPFLAG_ALL:
++    printf("flags(%s)", tcpflags(test->operand, '&'));
++    break;
++  case TEST_TCPOPT:
++    printf("option(%s)", tcpopt(test->operand & 0xFF));
++    break;
++  case TEST_ACK:
++    printf("ack(%u)", test->operand);
++    break;
++  case TEST_LISTEN:
++    printf("listen");
++    break;
++  default:
++    printf("test[%d](%d)", test->type, test->operand);
++    break;
++  }
++  return nb;
++}
++
++/* dumps the symbol tree built by the parser */
++int dump_symtree(struct symbol * sym, int level) {
++  int i = level;
++  int j = 1;
++
++  for (i=level; i; i--)
++    printf("  ");
++
++  switch(sym->type) {
++  case INS_TYPE_COPY:
++    printf("copy(%s);\n", tcpopt(sym->operand));
++    break;
++  case INS_TYPE_INS:
++    printf("insert(%s, %s%u);\n", tcpopt(sym->option & ~(INS_OPT_FROM_THIS)),
++	   (sym->option & INS_OPT_FROM_THIS) ? "this + " : "",
++	   sym->operand);
++    break;
++  case INS_TYPE_SET:
++    if ((sym->option & ~(INS_OPT_FROM_THIS)) == INS_OPT_SET_FLAGS)
++      printf("set(flags, %s);\n", tcpflags(sym->operand, '|'));
++    else
++      printf("set(%s, %s%u);\n", setarg(sym->option & ~(INS_OPT_FROM_THIS)),
++	     (sym->option & INS_OPT_FROM_THIS) ? "this + " : "",
++	     sym->operand);
++    break;
++  case INS_TYPE_NOP:
++    printf(";\n");
++    break;
++  case INS_TYPE_TEST:
++    printf("if (");
++    j += dump_testtree(sym->test);
++    printf(") {\n");
++    if (sym->cond[0])
++      j += dump_symtree(sym->cond[0], level+1);
++    for (i=level; i; i--)
++      printf("  ");
++    printf("} ");
++    if (sym->cond[1]) {
++      printf("else {\n");
++      j += dump_symtree(sym->cond[1], level+1);
++      for (i=level; i; i--)
++	printf("  ");
++      printf("}\n");
++    } else {
++      printf("\n");
++    }
++    break;
++  case INS_TYPE_RET:
++    switch (sym->option) {
++    case INS_OPT_RET_ACCEPT:
++      printf("accept;\n");
++      break;
++    case INS_OPT_RET_DROP:
++      printf("drop;\n");
++      break;
++    case INS_OPT_RET_REPLY:
++      printf("reply;\n");
++      break;
++    default:
++      printf("ret(%d);\n", sym->option);
++    }
++    break;
++  default:
++    printf("ins[%d.%d](%d);\n", sym->type, sym->option, sym->operand);
++    break;
++  }
++  if (sym->next)
++    j += dump_symtree(sym->next, level);
++  return j;
++}
++
++void asm_dump(u_int32_t * code, int len) {
++  int i;
++
++  for (i=0; i<len; i++) {
++    printf("%04X:  [%08X]  ", i, code[i]);
++    switch(code[i] & IP_PERS_INST) {
++    case IP_PERS_PUT:
++      printf("PUT     %s%s\n", tcpopt(code[i] & IP_PERS_DATA),
++	     ((code[i] & IP_PERS_IOPT) == IP_PERS_PUT_INS) ? " (insert)" : " (copy)");
++      break;
++    case IP_PERS_JMP:
++      printf("JMP     %04X\n", code[i] & IP_PERS_DATA);
++      break;
++    case IP_PERS_TEST:
++      printf("TEST    ");
++      switch (code[i] & IP_PERS_IOPT) {
++      case IP_PERS_TEST_OPTION:
++	printf("tcp_option, %s\n", tcpopt(code[i] & IP_PERS_DATA));
++	break;
++      case IP_PERS_TEST_FLAG_ANY:
++	printf("tcp_flags, %s\n", tcpflags(code[i] & IP_PERS_DATA, '|'));
++	break;
++      case IP_PERS_TEST_FLAG_ALL:
++	printf("tcp_flags, %s\n", tcpflags(code[i] & IP_PERS_DATA, '&'));
++	break;
++      case IP_PERS_TEST_LISTEN:
++	printf("listen\n");
++	break;
++      case IP_PERS_TEST_ACK:
++	printf("ack, %u\n", code[i] & IP_PERS_DATA);
++	break;
++      default:
++	printf("%06X\n", code[i] & ~IP_PERS_INST);
++      }
++      break;
++    case IP_PERS_SET:
++      printf("SET     ");
++      switch ((code[i] & IP_PERS_IOPT) & ~IP_PERS_SET_FROM_THIS) {
++      case IP_PERS_SET_FLAGS:
++	printf("flags, %s\n", tcpflags(code[i] & IP_PERS_DATA, '|'));
++	break;
++      case IP_PERS_SET_ACK:
++	printf("ack, %s%u\n",
++	       ((code[i] & IP_PERS_IOPT) & IP_PERS_SET_FROM_THIS) ? "this + " : "",
++	       code[i] & IP_PERS_DATA);
++	break;
++      case IP_PERS_SET_DF:
++	printf("df, %s%u\n",
++	       ((code[i] & IP_PERS_IOPT) & IP_PERS_SET_FROM_THIS) ? "this + " : "",
++	       code[i] & IP_PERS_DATA);
++	break;
++      case IP_PERS_SET_WIN:
++	printf("win, %s%u\n",
++	       ((code[i] & IP_PERS_IOPT) & IP_PERS_SET_FROM_THIS) ? "this + " : "",
++	       code[i] & IP_PERS_DATA);
++	break;
++      case IP_PERS_SET_MSS:
++	printf("mss, %s%u\n",
++	       ((code[i] & IP_PERS_IOPT) & IP_PERS_SET_FROM_THIS) ? "this + " : "",
++	       code[i] & IP_PERS_DATA);
++	break;
++      case IP_PERS_SET_WSCALE:
++	printf("wscale, %s%u\n",
++	       ((code[i] & IP_PERS_IOPT) & IP_PERS_SET_FROM_THIS) ? "this + " : "",
++	       code[i] & IP_PERS_DATA);
++      case IP_PERS_SET_TIMESTAMP:
++	printf("timestamp, %s%u\n",
++	       ((code[i] & IP_PERS_IOPT) & IP_PERS_SET_FROM_THIS) ? "this + " : "",
++	       code[i] & IP_PERS_DATA);
++	break;
++      default:
++	printf("%06X\n", code[i] & ~IP_PERS_INST);
++      }
++      break;
++    case IP_PERS_RET:
++      printf("RET     ");
++      switch(code[i] & IP_PERS_DATA) {
++      case IP_PERS_ACCEPT:
++	printf("accept\n");
++	break;
++      case IP_PERS_DROP:
++	printf("drop\n");
++	break;
++      case IP_PERS_REPLY:
++	printf("reply\n");
++	break;
++      default:
++	printf("%06X\n", code[i] & IP_PERS_DATA);
++      }
++      break;
++    default:
++      printf("%02X      %06X\n", (code[i] & IP_PERS_INST) >> 24, code[i] & ~IP_PERS_INST);
++    }
++  }
++}
++
++char * udp_text(int i) {
++  switch (i) {
++  case IP_PERS_UDP_ZERO:
++    return "zero";
++  case IP_PERS_UDP_SAME:
++    return "same";
++  case IP_PERS_UDP_MANGLE:
++    return "mangle";
++  }
++  return "??";
++}
++
++void print_gen(u_int32_t type, u_int32_t param, u_int32_t current) {
++  switch(type) {
++  case IP_PERS_FIXED_INC:
++    printf("fixed-increments (value=%u, base=%u)\n", param, current);
++    break;
++  case IP_PERS_BROKEN_INC:
++    printf("broken-increments (value=%u, base=%u)\n", param, current);
++    break;
++  case IP_PERS_RAND_INC:
++    printf("random-increments (value=%u, base=%u)\n", param, current);
++    break;
++  case IP_PERS_TIME_INC:
++    printf("time-increments, (freq=%u Hz, base=%u)\n", param, current);
++    break;
++  case IP_PERS_RANDOM:
++    printf("true-random\n");
++    break;
++  case IP_PERS_BUILTIN:
++    printf("builtin\n");
++    break;
++  case IP_PERS_ASIS:
++  default:
++    printf("asis\n");
++    break;
++  }
++}
++
++void dump_config(struct ip_pers * pers) {
++  if (pers->id[0]) 
++    printf("id: %s\n", pers->id);
++
++  printf("ipid type: ");
++  print_gen(pers->ipid_type, pers->ipid_param, pers->current_ipid);
++  printf("isn type: ");
++  print_gen(pers->isn_type, pers->isn_param, pers->current_isn);
++  printf("rewrite way: %s %s\n"
++	 "keep unknown options: %s\n"
++	 "keep unused options: %s\n"
++	 "max window: %u\n"
++	 "change options for isolated packets: %s\n",
++	 pers->tcp_way & IP_PERS_TCP_IN ? "ingoing" : "",
++	 pers->tcp_way & IP_PERS_TCP_OUT ? "outgoing" : "",
++	 pers->opt_keep_unknown ? "yes" : "no",
++	 pers->opt_keep_unused ? "yes" : "no",
++	 pers->tcp_maxwin,
++	 pers->opt_isolated ? "yes" : "no" );
++
++  
++  if (pers->udp_unreach) 
++    printf("udp-unreach:\n"
++	   "  reply: %s\n"
++	   "  df: %s\n"
++	   "  max-len: %d\n"
++	   "  tos: %d\n"
++	   "  ip-len: %u %s\n"
++	   "  ip-id: %s\n"
++	   "  ip-csum: %s\n"
++	   "  udp-len: %u %s\n"
++	   "  udp-csum: %s\n"
++	   "  udp-data: %s\n",
++	   pers->udp_info[IP_PERS_UDP_REPLY] ? "yes" : "no",
++	   pers->udp_info[IP_PERS_UDP_DF] ? "yes" : "no",
++	   pers->udp_info[IP_PERS_UDP_MAXLEN],
++	   pers->udp_info[IP_PERS_UDP_TOS],
++	   pers->udp_info[IP_PERS_UDP_RIPLEN],
++	   pers->udp_info[IP_PERS_UDP_RIPLEN_SAME]  ? "(same)" : "",
++	   udp_text(pers->udp_info[IP_PERS_UDP_RIPID]),
++	   udp_text(pers->udp_info[IP_PERS_UDP_RIPCSUM]),
++	   pers->udp_info[IP_PERS_UDP_RLEN],
++	   pers->udp_info[IP_PERS_UDP_RLEN_SAME]  ? "(same)" : "",
++	   udp_text(pers->udp_info[IP_PERS_UDP_RCSUM]),
++	   udp_text(pers->udp_info[IP_PERS_UDP_RDATA]));
++
++  printf("decoy timestamp-scale: ");
++  if (pers->timestamp_scale)
++    printf("%u\n", pers->timestamp_scale);
++  else
++    printf("disabled\n");
++}
++
++int main(int argc, char ** argv) {
++  struct ip_pers pers;
++  struct asmbuf abuf;
++  int alen;
++  int i;
++  
++  if (argc != 2) {
++    fprintf(stderr, "usage: %s file\n", argv[0]);
++    exit(EXIT_FAILURE);
++  }
++
++  yyin = fopen(argv[1], "r");
++  if (!yyin) {
++    fprintf(stderr, "%s: can't open %s for reading.\n", argv[0], argv[1]);
++    exit(EXIT_FAILURE);
++  }
++  yyfile = argv[1];
++  
++  memset(&pers, 0, sizeof(pers));
++  yypers = &pers;
++#ifdef YYDEBUG
++  yydebug = 0;
++#endif  
++  if (yyparse())
++    exit(EXIT_FAILURE);
++
++  printf("=== config ===\n");
++  dump_config(yypers);
++
++  for (i=0;i<2; i++) {
++    printf("\n=== interpreted code #%d ===\n", i);
++    if (yycode[i])
++      printf("code: %d instructions.\n", dump_symtree(yycode[i], 0));
++    printf("\n=== compiled code #%d ===\n", i);
++    if (yycode[i]) {
++      alen = asm_gen(&abuf, yycode[i]);
++      free_symtree(yycode[i]);
++      asm_optimize(abuf.code, alen);
++      asm_dump(abuf.code, alen);
++      printf("asm: %d instructions.\n", alen);
++    }
++  } 
++  fclose(yyin);
++  
++  return EXIT_SUCCESS;
++}
+diff -urN iptables-1.3.4.orig/pers/pers.h iptables-1.3.4/pers/pers.h
+--- iptables-1.3.4.orig/pers/pers.h	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/pers.h	2005-12-03 18:14:06.000000000 +0100
+@@ -0,0 +1,229 @@
++/*
++ * IP Personality
++ *   pers.h - IPTables PERS extension defines/prototypes
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: pers.h,v 1.10 2001/07/22 01:10:22 g_roualland Exp $
++ *
++ */
++
++#ifndef PERS_H
++#define PERS_H
++
++#include <linux/netfilter_ipv4/ip_personality.h>
++
++#define YYDEBUG 1
++
++/* TCP Options from RFC1700:
++
++   The Transmission Control Protocol (TCP) has provision for optional
++   header fields identified by an option kind field.  Options 0 and 1 are
++   exactly one octet which is their kind field.  All other options have
++   their one octet kind field, followed by a one octet length field,
++   followed by length-2 octets of option data.
++
++   Kind   Length   Meaning                           Reference
++   ----   ------   -------------------------------   ---------
++   0        -    End of Option List                 [RFC793]
++   1        -    No-Operation                       [RFC793]
++   2        4    Maximum Segment Lifetime           [RFC793]
++   3        3    WSOPT - Window Scale              [RFC1323]
++   4        2    SACK Permitted                    [RFC1072]
++   5        N    SACK                              [RFC1072]
++   6        6    Echo (obsoleted by option 8)      [RFC1072]
++   7        6    Echo Reply (obsoleted by option 8)[RFC1072]
++   8       10    TSOPT - Time Stamp Option         [RFC1323]
++   9        2    Partial Order Connection Permitted[RFC1693]
++   10       5    Partial Order Service Profile     [RFC1693]
++   11            CC                                 [Braden]
++   12            CC.NEW                             [Braden]
++   13            CC.ECHO                            [Braden]
++   14       3    TCP Alternate Checksum Request    [RFC1146]
++   15       N    TCP Alternate Checksum Data       [RFC1146]
++   16            Skeeter                           [Knowles]
++   17            Bubba                             [Knowles]
++   18       3    Trailer Checksum Option    [Subbu & Monroe]
++
++   URL = ftp://ftp.isi.edu/in-notes/iana/assignments/tcp-parameters
++*/
++#ifndef TCPOPT_EOL
++#define TCPOPT_EOL         0
++#endif
++#ifndef TCPOPT_NOP
++#define TCPOPT_NOP         1
++#endif
++#ifndef TCPOPT_MSS
++#define TCPOPT_MSS         2
++#endif
++#ifndef TCPOPT_WSCALE
++#define TCPOPT_WSCALE      3
++#endif
++#ifndef TCPOPT_SACKOK
++#define TCPOPT_SACKOK      4
++#endif
++#ifndef TCPOPT_SACK
++#define TCPOPT_SACK        5
++#endif
++#ifndef TCPOPT_ECHO
++#define TCPOPT_ECHO        6
++#endif
++#ifndef TCPOPT_ECHOREPLY
++#define TCPOPT_ECHOREPLY   7
++#endif
++#ifndef TCPOPT_TIMESTAMP
++#define TCPOPT_TIMESTAMP   8
++#endif
++#ifndef TCPOPT_POCOK
++#define TCPOPT_POCOK       9
++#endif
++#ifndef TCPOPT_POCSP
++#define TCPOPT_POCSP      10
++#endif
++#ifndef TCPOPT_CC
++#define TCPOPT_CC         11
++#endif
++#ifndef TCPOPT_CCNEW
++#define TCPOPT_CCNEW      12
++#endif
++#ifndef TCPOPT_CCECHO
++#define TCPOPT_CCECHO     13
++#endif
++#ifndef TCPOPT_ACREQ
++#define TCPOPT_ACREQ      14
++#endif
++#ifndef TCPOPT_ACDATA
++#define TCPOPT_ACDATA     15
++#endif
++
++/* TCP flags */
++#ifndef TH_FIN
++#define TH_FIN  0x01
++#endif
++#ifndef TH_SYN
++#define TH_SYN  0x02
++#endif
++#ifndef TH_RST
++#define TH_RST  0x04
++#endif
++#ifndef TH_PUSH
++#define TH_PUSH 0x08
++#endif
++#ifndef TH_ACK
++#define TH_ACK  0x10
++#endif
++#ifndef TH_URG
++#define TH_URG  0x20
++#endif
++#ifndef TH_ECE
++#define TH_ECE  0x40
++#endif
++#ifndef TH_CWR
++#define TH_CWR  0x80
++#endif
++/* Bogus TCP Flags used by scanners */
++#ifndef TH_BOG1
++#define TH_BOG1 0x100
++#endif
++#ifndef TH_BOG2
++#define TH_BOG2 0x200
++#endif
++#ifndef TH_BOG3
++#define TH_BOG3 0x400
++#endif
++#ifndef TH_BOG4
++#define TH_BOG4 0x800
++#endif
++
++/* symbol tree */
++#define INS_TYPE_NOP  1
++#define INS_TYPE_TEST 2
++#define INS_TYPE_COPY 3
++#define INS_TYPE_INS  4
++#define INS_TYPE_SET  5
++#define INS_TYPE_RET  6
++
++/* options */
++#define INS_OPT_SET_FLAGS     0
++#define INS_OPT_SET_ACK       1
++#define INS_OPT_SET_DF        2
++#define INS_OPT_SET_WIN       3
++
++#define INS_OPT_FROM_THIS     0x100
++
++#define INS_OPT_RET_ACCEPT    0
++#define INS_OPT_RET_REPLY     1
++#define INS_OPT_RET_DROP      2
++
++/* default size for asm output buffer */
++#define CODE_BASESIZE  256
++
++struct symbol {
++  int type;
++  int option;
++  int operand;
++  struct symbol * next;
++  struct test * test;
++  struct symbol * cond[2];
++};
++
++#define TEST_TCPOPT      0
++#define TEST_TCPFLAG     1
++#define TEST_TCPFLAG_ANY 2
++#define TEST_TCPFLAG_ALL 3
++#define TEST_OR          4
++#define TEST_AND         5
++#define TEST_ACK         6
++#define TEST_LISTEN      7
++
++struct test {
++  int type;
++  int operand;
++  int not;
++  struct test * test[2];
++};
++
++/* flex globals */
++extern int yylineno;
++extern FILE * yyin;
++extern char * yytext;
++
++/* parser globals */
++extern struct ip_pers * yypers;
++extern char * yyfile;
++extern struct symbol * yycode[2];
++
++#ifdef YYDEBUG
++extern int yydebug;
++#endif
++
++/* in the lexer and parser */
++int yylex();
++int yyparse();
++
++/* in pers_asm.c */
++struct asmbuf {
++  u_int32_t * code;
++  int size;
++};
++
++void free_symtree(struct symbol * sym);
++int asm_gen(struct asmbuf * abuf, struct symbol * sym);
++void asm_optimize(u_int32_t * code, int len);
++
++#endif
+diff -urN iptables-1.3.4.orig/pers/pers.l iptables-1.3.4/pers/pers.l
+--- iptables-1.3.4.orig/pers/pers.l	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/pers.l	2005-12-03 18:14:06.000000000 +0100
+@@ -0,0 +1,182 @@
++/*
++ * IP Personality
++ *   pers.l - Lexer for config file
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: pers.l,v 1.14 2001/07/19 23:43:25 g_roualland Exp $
++ *
++ */
++
++/* -*-c-*- */
++
++%pointer
++%option noyywrap
++%option 8bit
++%option yylineno
++
++%{
++#include <stdio.h>
++#include <netdb.h>
++#include <string.h>
++#include <stdlib.h>
++#include "pers.h"
++#include "pers_tab.h"
++
++#define LEXRET(a, b) { yylval.val = b ; return a ; }
++%}
++
++number          [0-9]+
++hexnumber       0x[0-9A-Fa-f]+
++symbol          [a-zA-Z][a-zA-Z0-9_]*
++blanks          [ \t]*
++string		\"[a-zA-Z0-9_\-.]+\"
++cr              "\n"
++
++%x ccomment cscomment
++
++%%
++
++ /* C like comments */
++"/*"                    BEGIN(ccomment); 
++<ccomment>[^*]*       
++<ccomment>"*"+[^/]   
++<ccomment>"*"+"/"       BEGIN(INITIAL);
++
++ /* C++ ans shell like comments */
++"//"|"#"                BEGIN(cscomment); 
++<cscomment>[^\n]*
++<cscomment>\n           BEGIN(INITIAL);
++
++ /* sections */
++tcp			return SECT_TCP;
++tcp_isn			return SECT_ISN;
++tcp_options		return SECT_TCPOPT;
++tcp_decoy               return SECT_TCPDECOY;
++ip_id			return SECT_IPID;
++udp_unreach             return SECT_UDP;
++
++ /* keywords for tcp section */
++max-window		return TCP_MAX_WINDOW;
++incoming		LEXRET(TCP_WAY, IP_PERS_TCP_IN);
++outgoing		LEXRET(TCP_WAY, IP_PERS_TCP_OUT);
++
++ /* keywords for isn section */
++type			return ISN_TYPE;
++initial-value		return ISN_IVALUE;
++
++ /* isn types */
++asis		        LEXRET(ISN_TYPE_0, IP_PERS_ASIS);
++fixed-inc		LEXRET(ISN_TYPE_N, IP_PERS_FIXED_INC);
++random-inc		LEXRET(ISN_TYPE_N, IP_PERS_RAND_INC);
++time-inc		LEXRET(ISN_TYPE_N, IP_PERS_TIME_INC);
++true-random		LEXRET(ISN_TYPE_0, IP_PERS_RANDOM);
++builtin			LEXRET(ISN_TYPE_0, IP_PERS_BUILTIN);
++broken-inc		LEXRET(ISN_TYPE_N, IP_PERS_BROKEN_INC);
++
++ /* keywords for tcp options section */
++code                    return CODE;
++keep-unknown		return KEEP_UNKNOWN;
++keep-unused		return KEEP_UNUSED;
++isolated-packets	return ISOLATED_PACKETS;
++timestamp-scale		return TSTAMP_SCALE;
++
++ /* tcp options */
++eol			LEXRET(EOL, TCPOPT_EOL);
++nop			LEXRET(NOP, TCPOPT_NOP);
++mss			LEXRET(MSS, TCPOPT_MSS);
++wscale			LEXRET(WSCALE, TCPOPT_WSCALE);
++sackOK			LEXRET(SACKOK, TCPOPT_SACKOK);
++sack			LEXRET(SACK, TCPOPT_SACK);
++echo			LEXRET(ECHO, TCPOPT_ECHO);
++echoreply		LEXRET(ECHOREPLY, TCPOPT_ECHOREPLY);
++timestamp		LEXRET(TIMESTAMP, TCPOPT_TIMESTAMP);
++pocOK			LEXRET(POCOK, TCPOPT_POCOK);
++pocSP			LEXRET(POCSP, TCPOPT_POCSP);
++CC			LEXRET(CC, TCPOPT_CC);
++CC\.NEW			LEXRET(CCNEW, TCPOPT_CCNEW);
++CC\.ECHO		LEXRET(CCECHO, TCPOPT_CCECHO);
++acreq			LEXRET(ACREQ, TCPOPT_ACREQ);
++acdata			LEXRET(ACDATA, TCPOPT_ACDATA);
++
++ /* tcp flags */
++syn			LEXRET(SYN, TH_SYN);
++ack			LEXRET(ACK, TH_ACK);
++fin			LEXRET(FIN, TH_FIN);
++rst			LEXRET(RST, TH_RST);
++urg			LEXRET(URG, TH_URG);
++push			LEXRET(PUSH, TH_PUSH);
++ece			LEXRET(ECE, TH_ECE);
++cwr 			LEXRET(CWR, TH_CWR);
++bog1			LEXRET(BOG1, TH_BOG1);
++bog2			LEXRET(BOG2, TH_BOG2);
++bog3			LEXRET(BOG3, TH_BOG3);
++bog4			LEXRET(BOG4, TH_BOG4);
++
++ /* special case */
++null                    return TOK_NULL;
++
++ /* instructions */
++flags                   return FLAGS;
++option                  return OPTION;
++copy                    return COPY;
++insert                  return INSERT;
++accept                  return ACCEPT;
++reply                   return REPLY;
++drop                    return DROP;
++this                    return THIS;
++set                     return SET;
++listen                  return LISTEN;
++
++ /* UDP options */
++mangle-original         return MANGLEORIG;
++ip-len                  return RIPLEN;
++udp-len                 return RLEN;
++ip-id                   LEXRET(UDP_OPT, IP_PERS_UDP_RIPID);
++ip-csum                 LEXRET(UDP_OPT, IP_PERS_UDP_RIPCSUM);
++udp-csum                LEXRET(UDP_OPT, IP_PERS_UDP_RCSUM);
++udp-data                LEXRET(UDP_OPT, IP_PERS_UDP_RDATA);
++same                    LEXRET(SAME, IP_PERS_UDP_SAME);
++mangle                  LEXRET(MANGLE, IP_PERS_UDP_MANGLE);
++zero                    LEXRET(ZERO, IP_PERS_UDP_ZERO);
++
++ /* generic tokens */
++if			return IF;
++else                    return ELSE;
++df                      return DF;
++tos                     return TOS;
++win                     return WIN;
++max-len                 return MAXLEN;
++yes                     LEXRET(YESNO, 1);
++no                      LEXRET(YESNO, 0);
++random			return RANDOM;
++id			return ID;
++{hexnumber}             { sscanf(yytext, "%x", &(yylval.val));
++                          return NUMBER; }
++{number} 		{ yylval.val = atoi(yytext);
++                          return NUMBER; } 
++{string}                { yytext[yyleng-1]='\0';
++                          yylval.str = strdup(yytext+1);
++                          return STRING; } 
++"||"			return OR;
++"&&"			return AND;
++
++{blanks}               
++{cr}
++.                       return yytext[0];
++%%
+diff -urN iptables-1.3.4.orig/pers/pers.y iptables-1.3.4/pers/pers.y
+--- iptables-1.3.4.orig/pers/pers.y	1970-01-01 01:00:00.000000000 +0100
++++ iptables-1.3.4/pers/pers.y	2005-12-03 18:14:06.000000000 +0100
+@@ -0,0 +1,320 @@
++/*
++ * IP Personality
++ *   pers.y - Parser for config file
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: pers.y,v 1.15 2001/07/22 01:10:22 g_roualland Exp $
++ *
++ */
++
++%{
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <time.h>
++#include "pers.h"
++  
++#ifndef YYDEBUG
++int yydebug;
++#endif
++
++/* global vars used by the parser */
++struct symbol * yycode[2] = { NULL, NULL };
++struct ip_pers * yypers;
++char * yyfile;
++
++int yyerror(char *);
++struct symbol * newsym(int type, int option, int operand);
++struct test * newtest(int type, int operand);
++u_int32_t urandom();
++
++#define linksym(sym, nxt)            { sym->next = nxt; }
++#define linkcond(sym, tst, ctrue, cfalse) { sym->test = tst; sym->cond[0] = ctrue; sym->cond[1] = cfalse; }
++#define linktest(tst, tst1, tst2)    { tst->test[0] = tst1; tst->test[1] = tst2; };
++
++%}
++
++%union {
++  struct symbol * sym;
++  struct test * test;
++  int val;
++  char * str;
++}; 
++
++%token SECT_ISN SECT_TCPOPT SECT_TCP SECT_IPID ID SECT_TCPDECOY SECT_UDP
++%token ISN_TYPE ISN_IVALUE TSTAMP_SCALE
++%token KEEP_UNKNOWN KEEP_UNUSED CODE MANGLEORIG RLEN RIPLEN
++%token RANDOM TOK_NULL TCP_MAX_WINDOW ISOLATED_PACKETS
++%token <val> NUMBER YESNO TCP_WAY ISN_TYPE_0 ISN_TYPE_N MANGLE ZERO SAME
++%token <str> STRING
++
++/* TCP Options */
++%token <val> EOL NOP MSS WSCALE SACKOK SACK ECHO ECHOREPLY TIMESTAMP POCOK POCSP CC
++%token <val> CCNEW CCECHO ACREQ ACDATA
++
++/* TCP flags */
++%token <val> SYN ACK FIN RST URG PUSH ECE CWR BOG1 BOG2 BOG3 BOG4
++
++/* instructions */
++%token IF ELSE ACCEPT DROP REPLY FLAGS OPTION COPY INSERT THIS SET LISTEN
++
++/* misc */
++%token <val> DF UDP_OPT TOS MAXLEN WIN
++
++%left OR AND '!'
++
++%type <sym> instruction_list instruction prog set_val
++%type <test> test tcp_flag_list
++%type <val> tcp_opt tcp_flag set_arg ins_opt ret udp_act
++
++%expect 1 /* if/then/else conflict */
++
++%start file
++
++%%
++
++/* grammar for config file */
++
++file		  : ID STRING ';' { strncpy((char *) yypers->id, $2, sizeof(yypers->id) - 1);
++                                    free($2); }
++                    options ;
++
++options           : SECT_TCP '{' section_tcp '}' options
++                  | SECT_ISN '{' section_isn '}' options
++                  | SECT_TCPOPT '{' section_tcpopt '}' options
++                  | SECT_TCPDECOY '{' section_tcpdecoy '}' options
++		  | SECT_IPID '{' section_ipid '}' options
++                  | SECT_UDP '{' section_udp '}' options { yypers->udp_unreach = 1; }
++                  |
++                  ;
++
++section_tcp	  : conf_tcp section_tcp
++                  |
++                  ;
++
++conf_tcp          : TCP_WAY YESNO ';'
++                    { if ($2) yypers->tcp_way |= $1; else yypers->tcp_way &= ~$1; }
++                  | TCP_MAX_WINDOW NUMBER ';' { yypers->tcp_maxwin = $2; }
++                  ;
++
++section_isn       : conf_isn section_isn
++                  |
++                  ;
++
++conf_isn          : ISN_TYPE ISN_TYPE_0 ';'
++                    { yypers->isn_type = $2 ; }
++                  | ISN_TYPE ISN_TYPE_N NUMBER ';'
++                    { yypers->isn_type = $2 ; yypers->isn_param = $3 ; }
++                  | ISN_IVALUE NUMBER ';'
++                    { yypers->current_isn = $2 ; }
++                  | ISN_IVALUE RANDOM ';'
++                    { yypers->current_isn = urandom(); }
++                  ;                  
++
++section_ipid	  : conf_ipid section_ipid
++                  |
++                  ;
++
++conf_ipid         : ISN_TYPE ISN_TYPE_0 ';'
++                    { yypers->ipid_type = $2 ; }
++                  | ISN_TYPE ISN_TYPE_N NUMBER ';'
++                    { yypers->ipid_type = $2 ; yypers->ipid_param = $3 ; }
++                  | ISN_IVALUE NUMBER ';'
++                    { yypers->current_ipid = $2 ; }
++                  | ISN_IVALUE RANDOM ';'
++                    { yypers->current_ipid = urandom(); }
++
++section_tcpopt    : conf_tcpopt section_tcpopt
++                  |
++                  ;
++
++conf_tcpopt       : KEEP_UNKNOWN YESNO ';'
++                    { yypers->opt_keep_unknown = $2; }
++                  | KEEP_UNUSED YESNO ';'
++                    { yypers->opt_keep_unused = $2; }
++                  | ISOLATED_PACKETS YESNO ';'
++                    { yypers->opt_isolated = $2; }
++                  | TSTAMP_SCALE NUMBER ';'
++                    { yypers->timestamp_scale = $2; }
++                  | CODE '{' instruction_list '}' { yycode[0] = $3; }
++                  ;
++
++section_tcpdecoy  : conf_tcpdecoy section_tcpdecoy
++                  |
++                  ;
++
++conf_tcpdecoy     : CODE '{' instruction_list '}' { yycode[1] = $3; }
++                  ;
++
++section_udp       : conf_udp section_udp
++                  |
++                  ;
++
++conf_udp          : MANGLEORIG '{' mangle_udp_list '}'
++                  | REPLY YESNO ';' { yypers->udp_info[IP_PERS_UDP_REPLY] = $2; }
++                  | MAXLEN NUMBER ';' { yypers->udp_info[IP_PERS_UDP_MAXLEN] = $2; }
++                  | DF YESNO ';' { yypers->udp_info[IP_PERS_UDP_DF] = $2; }
++                  | TOS NUMBER ';' { yypers->udp_info[IP_PERS_UDP_TOS] = $2; }
++                  ;
++
++mangle_udp_list   : mangle_udp mangle_udp_list
++                  |
++                  ;
++
++mangle_udp        : UDP_OPT udp_act ';' { yypers->udp_info[$1] = $2; }
++                  | RIPLEN NUMBER ';' { yypers->udp_info[IP_PERS_UDP_RIPLEN] = $2;
++		                        yypers->udp_info[IP_PERS_UDP_RIPLEN_SAME] = 0; }
++                  | RIPLEN SAME ';' { yypers->udp_info[IP_PERS_UDP_RIPLEN_SAME] = 1; }
++                  | RLEN NUMBER ';' { yypers->udp_info[IP_PERS_UDP_RLEN] = $2;
++                 		      yypers->udp_info[IP_PERS_UDP_RLEN_SAME] = 0;}
++                  | RLEN SAME ';' { yypers->udp_info[IP_PERS_UDP_RLEN_SAME] = 1; }
++                  ;
++
++udp_act           : SAME | ZERO | MANGLE;
++
++/* grammar for code */
++
++prog              : '{' instruction_list '}' { $$ = $2; }
++                  | '{' '}' { $$ = NULL; }
++                  | instruction { $$ = $1; }
++                  ;
++
++instruction_list  : instruction instruction_list { linksym($1, $2); $$ = $1; }
++                  | instruction { $$ = $1; }
++                  ;
++
++instruction       : IF '(' test ')' prog
++                    { $$ = newsym(INS_TYPE_TEST, 0, 0); linkcond($$, $3, $5, NULL); }
++                  | IF '(' test ')' prog ELSE prog
++                    { $$ = newsym(INS_TYPE_TEST, 0, 0); linkcond($$, $3, $5, $7); }
++                  | COPY '(' tcp_opt ')' ';' { $$ = newsym(INS_TYPE_COPY, 0, $3); }
++                  | INSERT '(' tcp_opt ')' ';'
++                    { $$ = newsym(INS_TYPE_INS, INS_OPT_FROM_THIS + $3, 0); }
++                  | INSERT '(' ins_opt ',' set_val ')' ';'
++                    { $$ = $5 ; $5->option += $3 ; $5->type = INS_TYPE_INS; }
++                  | SET '(' FLAGS ',' tcp_flag_list ')' ';'
++                    { $$ = newsym(INS_TYPE_SET, INS_OPT_SET_FLAGS, $5->operand); }
++                  | SET '(' set_arg ',' set_val ')' ';'
++                    { $$ = $5 ; $5->option += $3 ; $5->type = INS_TYPE_SET; }
++                  | ret ';' { $$ = newsym(INS_TYPE_RET, $1, 0); }
++		  | ';' { $$ = newsym(INS_TYPE_NOP, 0, 0); }
++                  ;
++
++test              : test OR test
++                    { $$ = newtest(TEST_OR, 0); linktest($$, $1, $3); }
++                  | test AND test
++                    { $$ = newtest(TEST_AND, 0); linktest($$, $1, $3); }
++                  | '(' test ')' { $$ = $2; }
++                  | '!' test { $2->not = !$2->not; $$ = $2; }
++                  | OPTION '(' tcp_opt ')' { $$ = newtest(TEST_TCPOPT, $3); }
++                  | FLAGS '(' tcp_flag_list ')' { $$ = $3; }
++                  | FLAGS '(' TOK_NULL ')' { $$ = newtest(TEST_TCPFLAG, 0); }
++                  | ACK '(' NUMBER ')' { $$ = newtest(TEST_ACK, $3); }
++                  | LISTEN { $$ = newtest(TEST_LISTEN, 0); }
++                  ;
++
++tcp_flag_list     : tcp_flag '&' tcp_flag_list
++                  { if ($3->type != TEST_TCPFLAG && $3->type != TEST_TCPFLAG_ALL)
++   		       { yyerror("incompatible flags grouping"); return 1; }
++    		    $3->type = TEST_TCPFLAG_ALL;
++		    $3->operand = $3->operand | $1; $$ = $3; }
++                  | tcp_flag '|' tcp_flag_list
++                  { if ($3->type != TEST_TCPFLAG && $3->type != TEST_TCPFLAG_ANY)
++   		      { yyerror("incompatible flags grouping"); return 1; }
++    		    $3->type = TEST_TCPFLAG_ANY;
++		    $3->operand = $3->operand | $1; $$ = $3; }
++                  | tcp_flag { $$ = newtest(TEST_TCPFLAG, $1); }
++                  ;
++
++tcp_flag          : SYN | ACK | FIN | RST | URG | PUSH | ECE | CWR | BOG1 | BOG2 | BOG3
++                  | BOG4 ;
++
++tcp_opt           : EOL | NOP | MSS | WSCALE | SACKOK | SACK | ECHO | ECHOREPLY | TIMESTAMP
++                  | POCOK | POCSP | CC | CCNEW | CCECHO | ACREQ | ACDATA ;
++
++ins_opt           : MSS | WSCALE | TIMESTAMP;
++ 
++ret               : REPLY { $$ = INS_OPT_RET_REPLY; }
++                  | ACCEPT { $$ = INS_OPT_RET_ACCEPT; }
++                  | DROP { $$ = INS_OPT_RET_DROP; }
++                  ;
++
++set_arg           : ACK { $$ = INS_OPT_SET_ACK; }
++                  | DF { $$ = INS_OPT_SET_DF; }
++                  | WIN { $$ = INS_OPT_SET_WIN; }
++                  ;
++
++set_val           : NUMBER { $$ = newsym(0, 0, $1); }
++                  | THIS { $$ = newsym(0, INS_OPT_FROM_THIS, 0); }
++                  | THIS '+' NUMBER { $$ = newsym(0, INS_OPT_FROM_THIS, $3); }
++                  ;
++
++%%
++
++int yyerror(char * s) {
++  fprintf(stderr,"%s:%d: %s before '%s'.\n", yyfile,
++          yylineno, s, yytext);
++  return 0;
++}
++
++struct symbol * newsym(int type, int option, int operand) {
++  struct symbol * sym;
++
++  sym = (struct symbol *) calloc(1, sizeof(struct symbol));
++  if (!sym) {
++    fprintf(stderr, "%s:%d: not enough memory.\n", yyfile, yylineno);
++    exit(EXIT_FAILURE);
++  }
++  sym->type = type;
++  sym->option = option;
++  sym->operand = operand;
++  return sym;
++}
++
++struct test * newtest(int type, int operand) {
++  struct test * test;
++
++  test = (struct test *) calloc(1, sizeof(struct test));
++  if (!test) {
++    fprintf(stderr, "%s:%d: not enough memory.\n", yyfile, yylineno);
++    exit(EXIT_FAILURE);
++  }
++  test->type = type;
++  test->operand = operand;
++  return test;
++}
++
++u_int32_t urandom() {
++  u_int32_t res;
++  int fd;
++
++  if ((fd = open("/dev/urandom", O_RDONLY)) >= 0) {
++    if (read(fd, &res, sizeof(u_int32_t)) == sizeof(u_int32_t)) {
++      close(fd);
++      return res;
++    } else
++      close(fd);
++  }
++
++  fprintf(stderr, "No /dev/urandom available. Reverting to regular pseudo-random.\n");
++  srand((unsigned int) time(NULL));
++  return (u_int32_t) rand();
++}

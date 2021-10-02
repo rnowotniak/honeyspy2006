@@ -1,0 +1,122 @@
+#!/usr/bin/perl -w
+# HoneySpy -- advanced honeypot environment
+# Copyright (C) 2005  Robert Nowotniak
+# Copyright (C) 2005  Michal Wysokinski
+# 
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+
+use strict;
+use POSIX qw(strftime locale_h);
+use Switch;
+use IO::Handle;
+
+open(LOG, '>&=3');
+LOG->autoflush(1);
+$| = 1;
+
+my $line = <STDIN>;
+chomp $line;
+
+print LOG "HTTP request from client: $line\n";
+
+switch ($line) {
+	case m[^GET (.*) HTTP/.\..]  {
+		print header();
+		print page();
+	}
+	else {
+		print "Unknown request: $line";
+	}
+}
+exit 0;
+
+my $request = <STDIN>;
+
+sub header {
+
+	setlocale(LC_ALL, 'C');
+
+	my $charset = 'charset=ISO-8859-2';
+	my $server = 'Microsoft-IIS/6.0';
+	my $date = strftime('%a, %d %b %Y %H:%M:%S %Z', gmtime());
+	my $content_length = length(page());
+
+	return <<EOH;
+HTTP/1.0 200 OK
+Content-Type: text/html; $charset
+ETag: "500f6-1a2-1a159440"
+Server: $server
+Expires: Fri, 25 Nov 2005 11:59:16 GMT
+Cache-Control: max-age=900
+Date: $date
+Date: Fri, 25 Nov 2005 11:44:16 GMT
+Content-Length: $content_length
+Accept-Ranges: bytes
+
+
+EOH
+}
+
+sub page {
+	
+	return <<EOP;
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>Object not found!</title>
+<link rev="made" href="mailto:root\@localhost" />
+<style type="text/css"><!--/*--><![CDATA[/*><!--*/ 
+    body { color: #000000; background-color: #FFFFFF; }
+    a:link { color: #0000CC; }
+    p, address {margin-left: 3em;}
+    span {font-size: smaller;}
+/*]]>*/--></style>
+</head>
+
+<body>
+<h1>Object not found!</h1>
+<p>
+
+
+    The requested URL was not found on this server.
+
+  
+
+    If you entered the URL manually please check your
+    spelling and try again.
+
+  
+
+</p>
+<p>
+If you think this is a server error, please contact
+the <a href="mailto:root\@localhost">webmaster</a>.
+
+</p>
+
+<h2>Error 404</h2>
+<address>
+  <a href="/">localhost</a><br />
+  <span>Apache/2.0.55 (Unix) mod_ssl/2.0.55 OpenSSL/0.9.7i DAV/2 SVN/1.2.3 PHP/5.0.5</span>
+</address>
+</body>
+</html>
+EOP
+
+}
+

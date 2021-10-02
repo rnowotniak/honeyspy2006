@@ -1,0 +1,2220 @@
+diff -urN linux-2.4.31.orig/include/linux/netfilter_ipv4/ip_conntrack.h linux-2.4.31/include/linux/netfilter_ipv4/ip_conntrack.h
+--- linux-2.4.31.orig/include/linux/netfilter_ipv4/ip_conntrack.h	2005-04-04 03:42:20.000000000 +0200
++++ linux-2.4.31/include/linux/netfilter_ipv4/ip_conntrack.h	2005-10-16 00:18:19.000000000 +0200
+@@ -158,6 +158,10 @@
+ 
+ struct ip_conntrack_helper;
+ 
++#if defined(CONFIG_IP_NF_PERS) || defined(CONFIG_IP_NF_PERS_MODULE)
++#include <linux/netfilter_ipv4/ip_personality.h>
++#endif
++
+ struct ip_conntrack
+ {
+ 	/* Usage count in here is 1 for hash table/destruct timer, 1 per skb,
+@@ -207,6 +211,9 @@
+ 	} nat;
+ #endif /* CONFIG_IP_NF_NAT_NEEDED */
+ 
++#if defined(CONFIG_IP_NF_PERS) || defined(CONFIG_IP_NF_PERS_MODULE)
++       struct ip_pers_conn_info pers;
++#endif
+ };
+ 
+ /* get master conntrack via master expectation */
+diff -urN linux-2.4.31.orig/include/linux/netfilter_ipv4/ip_personality.h linux-2.4.31/include/linux/netfilter_ipv4/ip_personality.h
+--- linux-2.4.31.orig/include/linux/netfilter_ipv4/ip_personality.h	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/include/linux/netfilter_ipv4/ip_personality.h	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,302 @@
++/*
++ * IP Personality
++ *   ip_personality.h - Defines/Prototypes.
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality.h,v 1.50 2001/07/22 21:59:35 g_roualland Exp $
++ *
++ */
++
++#ifndef _IP_PERSONALITY_H
++#define _IP_PERSONALITY_H
++
++/* Debug categories */
++#define IP_PERS_DEBUG_CORE    1
++#define IP_PERS_DEBUG_SEQ     2
++#define IP_PERS_DEBUG_OPTS    4
++#define IP_PERS_DEBUG_WIN     8
++#define IP_PERS_DEBUG_DECOY  16 
++#define IP_PERS_DEBUG_VM     32
++#define IP_PERS_DEBUG_UDP    64
++#define IP_PERS_DEBUG_IPID  128
++
++/* The following defines the default debug level for the module,
++   as a bitfield of the previous values for submodules.
++   If you have systcl enabled, this can be set at runtime
++   by writing to /proc/sys/net/ipv4/ip_personality_debug.
++   Undef this if you want to get rid of all debugging code. */
++#define IP_PERS_DEBUG 0
++
++#ifdef IP_PERS_DEBUG
++extern unsigned int ip_pers_debug;
++#endif
++
++/* Generator types */
++#define IP_PERS_ASIS          1
++#define IP_PERS_FIXED_INC     2
++#define IP_PERS_RAND_INC      3
++#define IP_PERS_RANDOM        4
++#define IP_PERS_BUILTIN       5
++#define IP_PERS_TIME_INC      6
++#define IP_PERS_BROKEN_INC    7
++
++/* Rules way */
++#define IP_PERS_TWEAK_SRC     1
++#define IP_PERS_TWEAK_DST     2
++
++/* Connection settings */
++#define IP_PERS_TCP_IN        1
++#define IP_PERS_TCP_OUT       2
++
++/* Max code length */
++#define IP_PERS_MAX_CODE      256
++
++struct ip_pers_prog {
++  u_int32_t prog_len;
++  u_int32_t instr[IP_PERS_MAX_CODE];
++};
++
++#define IP_PERS_MAX_UDP       12
++
++struct ip_pers {
++  u_int32_t initialized;
++  u_int32_t local;
++  u_int32_t current_isn;
++  u_int32_t isn_type;
++  u_int32_t isn_param;
++  u_int32_t ipid_type;
++  u_int16_t ipid_param;
++  u_int16_t current_ipid;
++  u_int32_t tweak_type;
++  u_int32_t tcp_way;
++  u_int32_t opt_keep_unknown;
++  u_int32_t opt_keep_unused;
++  u_int32_t opt_isolated;
++  u_int32_t tcp_maxwin;
++  u_int32_t udp_unreach;
++  u_int16_t udp_info[IP_PERS_MAX_UDP];
++  char id[21];
++  u_int32_t isn_jiffies;
++  u_int32_t ipid_jiffies;
++  u_int32_t timestamp_scale;
++  struct ip_pers_prog opt_prog;
++  struct ip_pers_prog decoy_prog;
++};
++
++/* Connexion status */
++#define IP_PERS_CONN_UNKNOWN 0
++#define IP_PERS_CONN_ESTABLISHED 1
++#define IP_PERS_CONN_WAITFORACK 2
++
++struct ip_pers_conn_info {
++  u_int32_t status;
++  u_int32_t seq_offset;
++  u_int32_t win_offset;
++  u_int32_t timestamp_scale;
++};
++
++/* defines and struct for option replacement programs */
++
++/* Options 16-18 are not recognized */
++#define IP_PERS_MAX_OPTS      16
++
++struct ip_pers_tcp_info {
++  /* presence of options */
++  u_int8_t initialized, has_unknown_opts;
++  u_int8_t * seen_opt[IP_PERS_MAX_OPTS];
++  u_int8_t used_opt[IP_PERS_MAX_OPTS];
++  u_int16_t flags;
++  u_int16_t mss;
++  u_int8_t wscale;
++};
++
++/* Output buffer size: a TCP packet options
++   section can not be more than 44 bytes (4 * 16 - 4). */
++#define IP_PERS_MAX_OPT_LEN   44
++
++struct ip_pers_vm_state {
++  u_int16_t flags;
++  u_int16_t win;
++  u_int32_t ack;
++  u_int32_t df;
++  u_int32_t mss;
++  u_int32_t wscale;
++  u_int32_t timestamp;
++  unsigned char optout_buf[IP_PERS_MAX_OPT_LEN];
++  unsigned int optout_len;
++};
++
++/* mask to extract TCP flags in TCP header */
++#define IP_PERS_EXTRACT_FLAGS 0x0FFF
++
++/* masks to extract instructions and data */
++#define IP_PERS_INST          0xFF000000
++#define IP_PERS_IOPT          0x00F00000
++#define IP_PERS_DATA          0x000FFFFF
++
++/* 'opcodes' for instructions */
++#define IP_PERS_TEST          0x01000000
++#define IP_PERS_JMP           0x02000000
++#define IP_PERS_PUT           0x03000000
++#define IP_PERS_SET           0x04000000
++#define IP_PERS_RET           0x05000000
++
++/* 'opcodes' for instruction options */
++#define IP_PERS_TEST_OPTION   0x00000000
++#define IP_PERS_TEST_FLAG_ANY 0x00100000
++#define IP_PERS_TEST_FLAG_ALL 0x00200000
++#define IP_PERS_TEST_ACK      0x00300000
++#define IP_PERS_TEST_LISTEN   0x00400000
++
++#define IP_PERS_PUT_COPY      0x00000000
++#define IP_PERS_PUT_INS       0x00100000
++
++#define IP_PERS_SET_FLAGS     0x00000000
++#define IP_PERS_SET_ACK       0x00100000
++#define IP_PERS_SET_DF        0x00200000
++#define IP_PERS_SET_WIN       0x00300000
++#define IP_PERS_SET_MSS       0x00400000
++#define IP_PERS_SET_WSCALE    0x00500000
++#define IP_PERS_SET_TIMESTAMP 0x00600000
++#define IP_PERS_SET_FROM_THIS 0x00800000
++
++/* return values for vm */
++#define IP_PERS_FAILED        0
++#define IP_PERS_ACCEPT        1
++#define IP_PERS_DROP          2
++#define IP_PERS_REPLY         3
++
++/* return values for 'hooks' */
++#define IP_PERS_ERROR         NF_ACCEPT
++#define IP_PERS_OK            NF_ACCEPT
++#define IP_PERS_KEEP          NF_STOLEN
++#define IP_PERS_REJ           NF_DROP
++
++/* UDP settings */
++#define IP_PERS_UDP_REPLY     0
++#define IP_PERS_UDP_DF        1
++#define IP_PERS_UDP_TOS       2
++#define IP_PERS_UDP_MAXLEN    3
++#define IP_PERS_UDP_RIPLEN    4
++#define IP_PERS_UDP_RIPID     5
++#define IP_PERS_UDP_RIPCSUM   6
++#define IP_PERS_UDP_RCSUM     7
++#define IP_PERS_UDP_RLEN      8
++#define IP_PERS_UDP_RDATA     9
++#define IP_PERS_UDP_RIPLEN_SAME 10
++#define IP_PERS_UDP_RLEN_SAME 11
++
++/* UDP actions */
++#define IP_PERS_UDP_SAME      0
++#define IP_PERS_UDP_ZERO      1
++#define IP_PERS_UDP_MANGLE    2
++
++#ifdef __KERNEL__
++#include <linux/tcp.h>
++#include <linux/udp.h>
++#include <linux/skbuff.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <net/sock.h>
++#include <net/route.h>
++
++/* ip_personality_seq routines */
++unsigned int pers_tcp_mangle_seq(struct iphdr *iph, struct tcphdr *th,
++				 struct ip_pers_conn_info *pci,
++				 struct ip_pers *pers,
++				 struct sk_buff **pskb);
++void pers_tcp_next_seq(struct iphdr *iph, struct tcphdr *th,
++		       struct ip_pers *pers);
++void pers_tcp_mangle_seq_new(struct iphdr *iph, struct tcphdr *th,
++			     struct ip_pers_conn_info *pci, struct ip_pers *pers);
++
++/* ip_personality_opts routines */
++unsigned int pers_tcp_reorder_opts(struct ip_pers *pers,
++				  struct tcphdr *tcph,
++				  const struct net_device *in,
++				  const struct net_device *out,
++				  struct sk_buff **pskb,
++				  struct ip_pers_tcp_info * odata);
++void pers_tcp_parse_opts(struct tcphdr *th, struct ip_pers_tcp_info *odata);
++void pers_tcp_add_padding(unsigned char *optbuf, unsigned int *optlen);
++unsigned int pers_tcp_timestamp_scale(struct iphdr *iph, struct tcphdr *th,
++				      struct ip_pers_conn_info *pci,
++				      struct ip_pers * pers,
++				      struct ip_pers_tcp_info * odata);
++
++/* ip_personality_win routines */
++unsigned int pers_tcp_mangle_win(struct iphdr *iph, struct tcphdr *th,
++				 struct ip_pers_conn_info *pci,
++				 struct ip_pers *pers,
++				 struct sk_buff **pskb);
++void pers_tcp_mangle_win_new(struct iphdr *iph, struct tcphdr *th,
++			     struct ip_pers_conn_info *pci, struct ip_pers *pers,
++			     struct ip_pers_tcp_info * odata);
++/* ip_personality_vm routines */
++inline int pers_tcp_add_opt(unsigned char opt,
++			    u_int8_t * data,
++			    unsigned char *optbuf,
++			    unsigned int *optlen);
++unsigned int pers_vm_run_prog(struct ip_pers_prog * prog,
++			      const struct net_device *in,
++			      const struct net_device *out,
++			      struct iphdr * iph,
++			      struct tcphdr * th,
++			      struct ip_pers_tcp_info * odata,
++			      struct ip_pers *pers,
++			      struct ip_pers_vm_state * state);
++
++/* ip_personality_decoy routines */
++unsigned int pers_tcp_decoy(struct ip_pers * pers,
++			    struct iphdr * iph,
++			    struct tcphdr * tcph,
++			    const struct net_device *in,
++			    const struct net_device *out,
++			    struct sk_buff **pskb,
++			    struct ip_pers_tcp_info * odata);
++
++/* ip_personality_udp routines */
++unsigned int pers_udp_check(struct ip_pers * pers,
++			    struct iphdr * iph,
++			    struct udphdr * uh,
++			    const struct net_device *in,
++			    const struct net_device *out,
++			    struct sk_buff **pskb);
++
++/* ip_personality_ipid routines */
++unsigned int pers_ip_mangle_id(struct ip_pers * pers,
++			       struct iphdr * iph,
++			       struct sk_buff **pskb);
++
++/* common pkt sending code */
++static inline unsigned int
++pers_send_local(struct sk_buff * skb, struct sk_buff * oskb) {
++  void (*attach)(struct sk_buff *, struct nf_ct_info *);
++
++  /* attach this packet to the initial packet connection if any,
++     so conntrack can follow it */
++  if (oskb && oskb->nfct && (attach = ip_ct_attach) != NULL)
++    attach(skb, oskb->nfct);
++
++  return NF_HOOK(PF_INET, NF_IP_LOCAL_OUT, skb, NULL, skb->dst->dev,
++		 ip_finish_output);
++}
++#endif
++
++#endif
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/Config.in linux-2.4.31/net/ipv4/netfilter/Config.in
+--- linux-2.4.31.orig/net/ipv4/netfilter/Config.in	2005-01-19 15:10:13.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/Config.in	2005-10-16 00:18:19.000000000 +0200
+@@ -103,6 +103,13 @@
+     dep_tristate '    DSCP target support' CONFIG_IP_NF_TARGET_DSCP $CONFIG_IP_NF_MANGLE
+  
+     dep_tristate '    MARK target support' CONFIG_IP_NF_TARGET_MARK $CONFIG_IP_NF_MANGLE
++    # IP Personality
++    if [ "$CONFIG_IP_NF_CONNTRACK" != "n" -a "$CONFIG_EXPERIMENTAL" = "y" ]; then
++      dep_tristate '    IP Personality Support (EXPERIMENTAL)' CONFIG_IP_NF_PERS $CONFIG_IP_NF_IPTABLES
++      if [ "$CONFIG_IP_NF_PERS" != "n" ]; then
++        define_bool CONFIG_IP_NF_NAT_NEEDED y
++      fi
++    fi
+   fi
+   dep_tristate '  LOG target support' CONFIG_IP_NF_TARGET_LOG $CONFIG_IP_NF_IPTABLES
+   dep_tristate '  ULOG target support' CONFIG_IP_NF_TARGET_ULOG $CONFIG_IP_NF_IPTABLES
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_core.c linux-2.4.31/net/ipv4/netfilter/ip_personality_core.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_core.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_core.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,399 @@
++/*
++ * IP Personality
++ *   ip_personality_core.c - Main module
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_core.c,v 1.49 2002/04/27 21:16:28 c-d_hailfinger Exp $
++ *
++ */
++
++#include <linux/module.h>
++#include <linux/skbuff.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
++#include <net/icmp.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <net/route.h>
++#include <linux/netfilter_ipv4/ip_conntrack.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++#include <linux/sched.h>
++#include <linux/proc_fs.h>
++#include <linux/sysctl.h>
++
++#ifdef IP_PERS_DEBUG
++unsigned int ip_pers_debug = IP_PERS_DEBUG;
++
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_CORE) printk
++
++/* log a TCP packet - verbose, but not as much as the LOG target */
++inline static void pers_tcp_log_packet(const struct net_device *in,
++				       struct iphdr * iph,
++				       struct tcphdr * th,
++				       unsigned int hooknum)
++{
++  if (ip_pers_debug & IP_PERS_DEBUG_CORE)
++    printk("PERS: TCP: %u.%u.%u.%u:%u => %u.%u.%u.%u:%u, " 
++	   "flags=%s%s%s%s%s%s, seq=%u, ack=%u, win=%u, ipid=%u [hook=%u]\n",
++	   NIPQUAD(iph->saddr), ntohs(th->source),
++	   NIPQUAD(iph->daddr), ntohs(th->dest),
++	   (th->syn ? "S" : ""),
++	   (th->psh ? "P" : ""),
++	   (th->ack ? "A" : ""),
++	   (th->fin ? "F" : ""),
++	   (th->rst ? "R" : ""),
++	   (th->urg ? "U" : ""),
++	   ntohl(th->seq), ntohl(th->ack_seq), ntohs(th->window),
++	   ntohs(iph->id),
++	   hooknum);
++}
++
++inline static void pers_udp_log_packet(const struct net_device *in,
++				       struct iphdr * iph,
++				       struct udphdr * uh,
++				       unsigned int hooknum)
++{
++  if (ip_pers_debug & IP_PERS_DEBUG_CORE)
++    printk("PERS: UDP: %u.%u.%u.%u:%u => %u.%u.%u.%u:%u, " 
++	   "ipid=%u [hook=%u]\n",
++	   NIPQUAD(iph->saddr), ntohs(uh->source),
++	   NIPQUAD(iph->daddr), ntohs(uh->dest),
++	   ntohs(iph->id),
++	   hooknum);
++}
++
++#ifdef CONFIG_SYSCTL
++#define NET_IPV4_PERS_DEBUG 1789
++
++static struct ctl_table_header *ip_pers_table_header;
++
++static ctl_table net_ipv4_pers_table[] = {
++  { NET_IPV4_PERS_DEBUG, "ip_personality_debug", &ip_pers_debug,
++    sizeof(ip_pers_debug), 0644, NULL, proc_dointvec },
++  { 0 }
++};
++
++static ctl_table net_ipv4_table[] = {
++  { NET_IPV4, "ipv4", NULL, 0, 0555, net_ipv4_pers_table },
++  { 0 }
++};
++
++static ctl_table net_table[] = {
++  { CTL_NET, "net", NULL, 0, 0555, net_ipv4_table },
++  { 0 }
++};
++#endif
++
++#else
++#define DEBUGP(format, args...)
++#define pers_tcp_log_packet(a, b, c, d)
++#define pers_udp_log_packet(a, b, c, d)
++#endif
++
++#define PERS_RET(result) { if((ret = (result)) != IP_PERS_OK) return ret; }
++
++/* Initialize connection data to rewrite its packets */
++static inline void pers_tcp_mangle_new(struct iphdr * iph,
++                                       struct tcphdr * th,
++				       struct ip_pers_conn_info *pci,
++				       struct ip_pers * pers,
++				       const struct net_device *in,
++				       const struct net_device *out,
++				       struct sk_buff **pskb,
++				       struct ip_pers_tcp_info * odata) {
++  /* initialize ISN rewriting */
++  pers_tcp_mangle_seq_new(iph, th, pci, pers);
++
++  /* initialize WIN rewriting */
++  pers_tcp_mangle_win_new(iph, th, pci, pers, odata);
++  
++  /* inialize timestamp scaling if needed */
++  if (pers->local && pers->timestamp_scale != HZ) 
++    pci->timestamp_scale = pers->timestamp_scale;
++  else
++    pci->timestamp_scale = 0;
++
++  pci->status = IP_PERS_CONN_ESTABLISHED;
++}
++
++/* Rewrite packets of an extablished connections */
++static inline unsigned int pers_tcp_mangle_est(struct iphdr * iph,
++					       struct tcphdr * th,
++					       struct ip_pers_conn_info *pci,
++					       struct ip_pers * pers,
++					       const struct net_device *in,
++					       const struct net_device *out,
++					       struct sk_buff **pskb,
++					       struct ip_pers_tcp_info * odata) {
++  unsigned int ret;
++  
++  /* ISN rewriting works in both ways (seq/ack). */
++  if (pci->seq_offset)
++    PERS_RET(pers_tcp_mangle_seq(iph, th, pci, pers, pskb));
++
++  /* Timestamp scaling */
++  if (pci->timestamp_scale)
++    PERS_RET(pers_tcp_timestamp_scale(iph, th, pci, pers, odata));
++  
++  if (pers->tweak_type == IP_PERS_TWEAK_SRC) {
++    /* Window rewriting */
++    if (pci->win_offset)
++      PERS_RET(pers_tcp_mangle_win(iph, th, pci, pers, pskb));
++    
++    /* Options rewriting */
++    if (pers->opt_prog.prog_len)
++      PERS_RET(pers_tcp_reorder_opts(pers, th, in, out, pskb, odata));
++  }
++  
++  return IP_PERS_OK;
++}
++
++/* Rewrite packets of unknown connections -- isolated packets */
++static inline unsigned int pers_tcp_mangle_other(struct iphdr * iph,
++						 struct tcphdr * th,
++						 struct ip_pers_conn_info *pci,
++                                                 struct ip_pers * pers,
++						 const struct net_device *in,
++						 const struct net_device *out,
++						 struct sk_buff **pskb,
++						 struct ip_pers_tcp_info * odata) {
++  unsigned int ret;
++  
++  /* right now, we only do options rewrting here */
++  if ((pers->tweak_type == IP_PERS_TWEAK_SRC) && pers->opt_isolated
++      && pers->opt_prog.prog_len)
++    PERS_RET(pers_tcp_reorder_opts(pers, th, in, out, pskb, odata));
++
++  return IP_PERS_OK;
++}
++
++
++static inline unsigned int pers_tcp_mangle(struct sk_buff **pskb,
++					   unsigned int hooknum,
++					   const struct net_device *in,
++					   const struct net_device *out,
++					   struct ip_pers *pers)
++
++{
++  struct ip_conntrack *ct;
++  enum ip_conntrack_info ctinfo;
++  struct tcphdr * th;
++  struct iphdr * iph;
++  struct ip_pers_tcp_info odata;
++  unsigned int ret;
++
++  odata.initialized = 0;
++  
++  iph = (*pskb)->nh.iph;
++  th = (struct tcphdr *) ((void *)iph + 4*iph->ihl);
++
++  pers_tcp_log_packet(in, iph, th, hooknum);
++  
++  if (!pers->initialized) { /* it is the first time that target matches */
++    DEBUGP("PERS:   First pass in rule, initializing ISN.\n");
++    if (pers->isn_type == IP_PERS_TIME_INC)
++      pers->isn_jiffies = jiffies;
++    if (pers->ipid_type == IP_PERS_TIME_INC)
++      pers->ipid_jiffies = jiffies;
++    pers->initialized = 1;
++  }
++
++  ct = ip_conntrack_get(*pskb, &ctinfo);
++
++  if ((ct && !(ctinfo == IP_CT_ESTABLISHED || ctinfo == IP_CT_IS_REPLY)) || !ct)
++    if (pers->tweak_type == IP_PERS_TWEAK_DST && pers->local)
++      PERS_RET(pers_tcp_decoy(pers, iph, th, in, out, pskb, &odata));
++
++  if(ct) {
++    DEBUGP("PERS:   Conntrack status %d, %s%s%s%s\n",
++	   ctinfo,
++	   (ctinfo == IP_CT_ESTABLISHED ? "EST " : ""),
++	   (ctinfo == IP_CT_RELATED ? "REL " : ""),
++	   (ctinfo == IP_CT_NEW ? "NEW " : ""),
++	   (ctinfo >= IP_CT_IS_REPLY ? "REP " : ""));
++    
++    if (ct->pers.status &&
++	(ctinfo == IP_CT_ESTABLISHED || ctinfo == IP_CT_IS_REPLY)) {
++      /* this is a known connection */
++      if ((ct->pers.status == IP_PERS_CONN_WAITFORACK) &&
++	  th->syn && th->ack && (pers->tweak_type == IP_PERS_TWEAK_SRC))
++	/* this is a SYN+ACK we were waiting for,
++	 * now we can consider the connection established */
++	pers_tcp_mangle_new(iph, th, &(ct->pers), pers, in, out, pskb, &odata);
++      
++      if (ct->pers.status == IP_PERS_CONN_ESTABLISHED)
++	PERS_RET(pers_tcp_mangle_est(iph, th, &(ct->pers), pers, in, out, pskb, &odata));
++    }
++    
++    if (ctinfo == IP_CT_NEW) {
++      /* set up a new connection */
++      DEBUGP("PERS:   New connection! (%u.%u.%u.%u:%u => %u.%u.%u.%u:%u)\n",
++	     NIPQUAD(iph->saddr), ntohs(th->source),
++	     NIPQUAD(iph->daddr), ntohs(th->dest));
++      
++      if (pers->tweak_type == IP_PERS_TWEAK_SRC) {
++	if (!ct->pers.status && (pers->tcp_way & IP_PERS_TCP_OUT))
++	  /* we have not seen that connection yet */
++	  pers_tcp_mangle_new(iph, th, &(ct->pers), pers, in, out, pskb, &odata);
++	if (ct->pers.status)
++	  PERS_RET(pers_tcp_mangle_est(iph, th, &(ct->pers), pers, in, out, pskb, &odata));
++      } else if (pers->tweak_type == IP_PERS_TWEAK_DST) {
++	/* need SYN+ACK to complete setup of connection */
++	if (!ct->pers.status && (pers->tcp_way & IP_PERS_TCP_IN)) {
++	  DEBUGP("PERS:   External connection, waiting for SYN ACK.\n");
++	  ct->pers.status = IP_PERS_CONN_WAITFORACK;
++	}
++      }
++    }
++
++    if (!ct->pers.status)
++      PERS_RET(pers_tcp_mangle_other(iph, th, (&ct->pers), pers, in, out, pskb, &odata));
++  } else
++    PERS_RET(pers_tcp_mangle_other(iph, th, (&ct->pers), pers, in, out, pskb, &odata));
++  
++  return IP_PERS_OK;
++}
++
++static inline unsigned int pers_udp_mangle(struct sk_buff **pskb,
++					   unsigned int hooknum,
++					   const struct net_device *in,
++					   const struct net_device *out,
++					   struct ip_pers *pers)
++{
++  struct udphdr * uh;
++  struct iphdr * iph;
++  int ret;
++  
++  iph = (*pskb)->nh.iph;
++  uh = (struct udphdr *) ((void *)iph + 4*iph->ihl);
++
++  pers_udp_log_packet(in, iph, uh, hooknum);
++
++  if (pers->tweak_type == IP_PERS_TWEAK_DST && pers->local)
++    PERS_RET(pers_udp_check(pers, iph, uh, in, out, pskb));
++
++  return IP_PERS_OK;
++}
++
++static inline unsigned int pers_ip_mangle(struct sk_buff **pskb,
++					   unsigned int hooknum,
++					   const struct net_device *in,
++					   const struct net_device *out,
++					   struct ip_pers *pers)
++{
++  struct iphdr * iph;
++  int ret;
++  
++  iph = (*pskb)->nh.iph;
++
++  if (pers->tweak_type == IP_PERS_TWEAK_SRC &&
++      !(ntohs(iph->frag_off) & IP_MF)) /* skip fragmented packets */
++    PERS_RET(pers_ip_mangle_id(pers, iph, pskb));
++  
++  return IP_PERS_OK;
++}
++
++static unsigned int pers_target(struct sk_buff **pskb,
++				unsigned int hooknum,
++				const struct net_device *in,
++				const struct net_device *out,
++				const void *targinfo,
++				void *userinfo)
++{
++  unsigned int ret;
++  struct ip_pers * pers = (struct ip_pers *)targinfo;
++  
++  /* not the first fragment */
++  if(ntohs((*pskb)->nh.iph->frag_off) & IP_OFFSET)
++    return IP_PERS_OK;
++
++  /* TCP stuff first */
++  if ((*pskb)->nh.iph->protocol == IPPROTO_TCP)
++    PERS_RET(pers_tcp_mangle(pskb, hooknum, in, out, pers));
++
++  /* handle UDP */
++  if ((*pskb)->nh.iph->protocol == IPPROTO_UDP)
++    PERS_RET(pers_udp_mangle(pskb, hooknum, in, out, pers));
++
++  /* finally handle IP ID */
++  return pers_ip_mangle(pskb, hooknum, in, out, pers);
++}
++
++static int pers_check_rule(const char *tablename,
++		 const struct ipt_entry *e,
++		 void *targinfo,
++		 unsigned int targinfosize,
++		 unsigned int hook_mask)
++{
++  struct ip_pers *pers = targinfo;
++
++  if (pers->tweak_type != IP_PERS_TWEAK_SRC && pers->tweak_type != IP_PERS_TWEAK_DST) {
++    printk(KERN_WARNING "PERS: No valid tweak type specified!\n");
++    return 0;
++  }
++
++  if (!(pers->tcp_way & (IP_PERS_TCP_IN + IP_PERS_TCP_OUT))) {
++    printk(KERN_WARNING "PERS: No TCP type specified!\n");
++    return 0;
++  }
++
++  if (strcmp(tablename, "mangle") != 0) {
++    printk(KERN_WARNING "PERS: Can only be called from \"mangle\" table, not \"%s\"\n",
++	   tablename);
++    return 0;
++  }
++
++  return 1;
++}
++
++
++static struct ipt_target ip_pers_target
++= { { NULL, NULL }, "PERS", pers_target, pers_check_rule, NULL, THIS_MODULE };
++
++
++static int __init init(void)
++{
++#ifdef CONFIG_SYSCTL
++  if ((ip_pers_table_header =
++       register_sysctl_table(net_table, 0)) == NULL) {
++    printk("PERS: Cannot register sysctl.\n");
++    return -EINVAL;
++  }
++#endif  
++
++  if (ipt_register_target(&ip_pers_target))
++    return -EINVAL;
++  
++  printk("PERS: Successfully registered IPTable target.\n");
++  
++  return 0;
++}
++
++static void __exit fini(void)
++{
++  ipt_unregister_target(&ip_pers_target);
++  printk("PERS: Unregistered IPTable target.\n");
++#ifdef CONFIG_SYSCTL
++  unregister_sysctl_table(ip_pers_table_header);
++#endif  
++}
++
++module_init(init);
++module_exit(fini);
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_decoy.c linux-2.4.31/net/ipv4/netfilter/ip_personality_decoy.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_decoy.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_decoy.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,167 @@
++/*
++ * IP Personality
++ *   ip_personality_decoy.c - tcp decoy handling module
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_decoy.c,v 1.19 2001/07/22 22:00:09 g_roualland Exp $
++ *
++ */
++
++#include <linux/skbuff.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <linux/random.h>
++#include <net/sock.h>
++#include <net/route.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++
++#ifdef IP_PERS_DEBUG
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_DECOY) printk
++#else
++#define DEBUGP(format, args...)
++#endif
++
++unsigned int pers_tcp_decoy(struct ip_pers * pers,
++			    struct iphdr * iph,
++			    struct tcphdr * th,
++			    const struct net_device *in,
++			    const struct net_device *out,
++			    struct sk_buff **pskb,
++			    struct ip_pers_tcp_info * odata)
++{
++  struct ip_pers_vm_state state;
++  unsigned int ret;
++  struct iphdr * riph;
++  struct tcphdr * rth;
++  struct sk_buff * rskb;
++  unsigned int len;
++  struct rtable *rt;
++  
++  if (pers->decoy_prog.instr == NULL || pers->decoy_prog.prog_len == 0 || !in) 
++    return IP_PERS_OK; /* nothing to do */
++
++  if (!odata->initialized)
++    pers_tcp_parse_opts(th, odata);
++
++  /* initalize vm state */
++  memset(&state, 0, sizeof(state));
++  state.win = ntohs(th->window);
++  state.df = ((*pskb)->nh.iph->frag_off & __constant_htons(IP_DF));
++  state.mss = odata->mss;
++  state.wscale = odata->wscale;
++  
++  /* run program and fill optout_buf */
++  DEBUGP("PERS:   Decoying:");
++  ret = pers_vm_run_prog(&(pers->decoy_prog), in, out, (*pskb)->nh.iph, th,
++			 odata, pers, &state);
++
++  switch(ret) {
++  case IP_PERS_DROP:
++    DEBUGP(" DROP\n");
++    return IP_PERS_REJ;
++  case IP_PERS_ACCEPT:
++    DEBUGP(" ACCEPT\n");
++    return IP_PERS_OK;
++  case IP_PERS_REPLY:
++    pers_tcp_add_padding(state.optout_buf, &state.optout_len);
++    DEBUGP(" REPLY\n");
++    break;
++  default:
++    DEBUGP("** failed\n");
++    return IP_PERS_ERROR;
++  }
++
++  /* route pkt */
++  if (ip_route_output(&rt, iph->saddr, iph->daddr,
++		      RT_TOS(iph->tos) | RTO_CONN,
++		      0)) {
++    if (net_ratelimit())
++      printk(KERN_WARNING "PERS: Can't route decoy reply to %u.%u.%u.%u\n",
++	     NIPQUAD(iph->saddr));
++    return IP_PERS_ERROR;
++  }
++
++  len = sizeof(struct iphdr) + sizeof(struct tcphdr) + state.optout_len;
++
++  rskb = alloc_skb(len + in->hard_header_len + 15, GFP_ATOMIC);
++  if (!rskb) {
++    if (net_ratelimit())
++      printk(KERN_WARNING "PERS: Can't allocate new decoy skb!\n");
++    return IP_PERS_ERROR;
++  }
++
++  rskb->pkt_type = PACKET_OUTGOING;
++  rskb->priority = (*pskb)->priority;
++  skb_reserve(rskb, (in->hard_header_len + 15) & ~15);
++  skb_put(rskb, len);
++  rskb->dst = &rt->u.dst;
++  rskb->dev = rskb->dst->dev;
++  rskb->sk = NULL;
++
++  /* build ip header */
++  riph = rskb->nh.iph = (struct iphdr *) rskb->data;
++  riph->version = 4;
++  riph->ihl = sizeof(struct iphdr) / 4;
++  riph->tos = iph->tos;
++  riph->frag_off = (state.df ? __constant_htons(IP_DF) : 0);
++  riph->ttl = MAXTTL;
++  riph->daddr = iph->saddr;
++  riph->saddr = iph->daddr;
++  riph->protocol = IPPROTO_TCP;
++  riph->tot_len = ntohs(len);
++  riph->check = 0;
++  ip_select_ident(riph, &rt->u.dst, NULL);
++  ip_send_check(riph);
++
++  /* build tcp header */
++  rth = rskb->h.th = (struct tcphdr *) (rskb->data + sizeof(struct iphdr));
++  rth->source = th->dest;
++  rth->dest = th->source;
++  rth->ack_seq = htonl(state.ack);
++  *(((u_int16_t *)rth)+6) = htons(state.flags & IP_PERS_EXTRACT_FLAGS);
++  /* sequence numbers */
++  if (rth->rst) {
++    if (th->ack)
++      rth->seq = th->ack_seq;
++    else
++      rth->seq = 0;
++  } else {
++    if (pers->isn_type && pers->isn_type != IP_PERS_ASIS) {
++      pers_tcp_next_seq(riph, rth, pers);
++      rth->seq = htonl(pers->current_isn);
++    } else
++      rth->seq = secure_tcp_sequence_number(riph->daddr, riph->saddr,
++					    rth->dest, rth->source);
++  }
++  rth->window = htons(state.win);
++  rth->check = 0;
++  rth->urg_ptr = 0;
++  if (state.optout_len) /* add options */
++    memcpy((void *) (rth + 1), state.optout_buf, state.optout_len);
++  rth->doff = (sizeof(struct tcphdr) + state.optout_len) / 4;
++  rskb->csum = csum_partial((char *)rth + rth->doff*4, 0, 0);
++  rth->check = 0;
++  rth->check = tcp_v4_check(rth, rth->doff*4, riph->saddr, riph->daddr,
++			    csum_partial((char *)rth, rth->doff*4, rskb->csum));
++  
++  pers_send_local(rskb, *pskb);
++
++  return IP_PERS_REJ;
++}
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_ipid.c linux-2.4.31/net/ipv4/netfilter/ip_personality_ipid.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_ipid.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_ipid.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,93 @@
++/*
++ * IP Personality
++ *   ip_personality_ipid.c - IP ID rewritting
++ *
++ * Copyright (C) 2001, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2001, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_ipid.c,v 1.3 2001/07/22 22:56:28 g_roualland Exp $
++ *
++ */
++
++#include <net/tcp.h>
++#include <net/checksum.h>
++#include <linux/random.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++#include <linux/sched.h>
++#include <asm/byteorder.h>
++
++#ifdef IP_PERS_DEBUG
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_IPID) printk
++#else
++#define DEBUGP(format, args...)
++#endif
++
++unsigned int pers_ip_mangle_id(struct ip_pers *pers,
++			       struct iphdr *iph,
++			       struct sk_buff ** pskb) {
++  u_int16_t newid, diffs[2];
++
++  switch (pers->ipid_type) {
++  case IP_PERS_FIXED_INC:
++    pers->current_ipid += pers->ipid_param;
++    newid = htons(pers->current_ipid);
++    break;
++  case IP_PERS_BROKEN_INC:
++    pers->current_ipid += pers->ipid_param;
++    newid = cpu_to_le16(pers->current_ipid);
++    break;
++  case IP_PERS_RAND_INC:
++    get_random_bytes(&newid, sizeof(newid));
++    pers->current_ipid += (pers->ipid_param ? newid % pers->ipid_param : 0);
++    newid = htons(pers->current_ipid);
++    break;
++  case IP_PERS_RANDOM:
++    get_random_bytes(&newid, sizeof(newid));
++    break;
++  case IP_PERS_BUILTIN:
++    newid = 0;
++    break;
++  case IP_PERS_TIME_INC:
++    if(pers->ipid_param > 0) {
++      pers->current_ipid += ((jiffies - pers->ipid_jiffies) 
++			   * pers->ipid_param) / HZ;
++      pers->ipid_jiffies = jiffies;
++    }
++    newid = htons(pers->current_ipid);
++    break;    
++  case IP_PERS_ASIS:
++  default:
++    newid = iph->id;
++    break;
++  }
++
++  if (newid == iph->id)
++    return IP_PERS_OK; /* no changes */
++    
++  DEBUGP("PERS:  Rewrite IPID on pkt from %u.%u.%u.%u: %u -> %u\n",
++	 NIPQUAD(iph->saddr), ntohs(iph->id), ntohs(newid));
++
++  diffs[0] = ~iph->id;
++  iph->id = newid;
++  diffs[1] = newid;
++  iph->check = csum_fold(csum_partial((char *)diffs,
++				      sizeof(diffs),
++				      iph->check^0xFFFF));
++
++  return IP_PERS_OK;
++}
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_opts.c linux-2.4.31/net/ipv4/netfilter/ip_personality_opts.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_opts.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_opts.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,417 @@
++/*
++ * IP Personality
++ *   ip_personality_opt.c - TCP options handling
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_opts.c,v 1.27 2002/04/27 21:16:28 c-d_hailfinger Exp $
++ *
++ */
++
++#include <linux/skbuff.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <net/route.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++
++#ifdef IP_PERS_DEBUG
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_OPTS) printk
++
++/* known tcp options names (usable in prog) */
++static char * tcpopts[] = {
++  "eol",
++  "nop",
++  "mss",
++  "wscale",
++  "sackOK",
++  "sack",
++  "echo",
++  "echoreply",
++  "timestamp",
++  "pocOK",
++  "pocSP",
++  "CC",
++  "CC.NEW",
++  "CC.ECHO",
++  "acreq",
++  "acdata"
++};
++
++#else
++#define DEBUGP(format, args...)
++#endif
++
++/* add nops for padding */
++inline void pers_tcp_add_padding(unsigned char *optbuf, unsigned int *optlen)
++{
++  unsigned int align = (4 - (*optlen % 4)) % 4 ;
++  unsigned char *optend = optbuf + *optlen;
++
++  if(*optlen + align >= IP_PERS_MAX_OPT_LEN)
++    return;
++  (*optlen) += align;
++  while(align--) {
++    DEBUGP(" %s", tcpopts[TCPOPT_EOL]);
++    *(optend++) = TCPOPT_EOL;
++  }
++}
++
++/* parse options in TCP header */
++inline void pers_tcp_parse_opts(struct tcphdr *th,
++				struct ip_pers_tcp_info * odata)
++{
++  /* stolen from tcp_parse_options() in tcp_input.c */
++  unsigned char *ptr;
++  int length=(th->doff*4)-sizeof(struct tcphdr);
++
++  /* initialize data */
++  memset(odata, 0, sizeof(struct ip_pers_tcp_info));
++  odata->initialized = 1;
++  
++  odata->flags = ntohs(*(((u_int16_t*)th) +6)) & IP_PERS_EXTRACT_FLAGS;
++  
++  ptr = (unsigned char *)(th + 1);
++
++  DEBUGP("PERS:   Parsing options:");
++
++  while(length>0) {
++    unsigned char opcode=*ptr++;
++    unsigned char opsize;
++
++    switch (opcode) {
++    case TCPOPT_EOL:
++      DEBUGP(" %s\n", tcpopts[opcode]);
++      odata->seen_opt[TCPOPT_EOL] = (unsigned char*)1;
++      return;
++    case TCPOPT_NOP:	/* Ref: RFC 793 section 3.1 */
++      DEBUGP(" %s", tcpopts[opcode]);
++      odata->seen_opt[TCPOPT_NOP] = (unsigned char*)1;
++      length--;
++      continue;
++    default:
++      opsize=*ptr++;
++      if (opsize < 2) { /* "silly options" */
++	DEBUGP("\n");
++	return;
++      }
++      if (opsize > length)
++	return; /* don't parse partial options */
++      if (opcode < IP_PERS_MAX_OPTS) {
++	DEBUGP(" %s", tcpopts[opcode]);
++	odata->seen_opt[opcode] = ptr-2;
++	if (opcode == TCPOPT_WINDOW)
++	  odata->wscale = (u_int8_t) *ptr;
++	else {
++	  if (opcode == TCPOPT_MSS) {
++	    u_int16_t mss;
++	    memcpy(&mss, ptr, sizeof(u_int16_t));
++	    odata->mss = ntohs(mss);
++	  }
++	}
++      } else {
++	DEBUGP(" opt(%d)", opcode);
++	odata->has_unknown_opts = 1;
++      }
++      ptr+=opsize-2;
++      length-=opsize;
++    }
++  }
++  DEBUGP("\n");
++}
++
++/* parse options in TCP header, inserting unknown ones */
++inline void pers_tcp_add_unknown_opts(struct tcphdr *th,
++				      unsigned char *optbuf,
++				      unsigned int *optlen)
++{
++  unsigned char *ptr = (unsigned char *)(th + 1);
++  int length=(th->doff*4)-sizeof(struct tcphdr);
++
++  while(length>0) {
++    unsigned char opcode=*ptr++;
++    unsigned char opsize;
++
++    switch (opcode) {
++    case TCPOPT_EOL:
++      return;
++    case TCPOPT_NOP:
++      length--;
++      continue;
++    default:
++      opsize=*ptr++;
++      if (opsize < 2) /* "silly options" */
++	return;
++      if (opsize > length)
++	return;	/* don't parse partial options */
++      if (opcode > IP_PERS_MAX_OPTS) {
++	DEBUGP(" opt(%d)", opcode);
++	if (pers_tcp_add_opt(opcode, ptr-2, optbuf, optlen)) {
++	  DEBUGP("*** error : not enough room to add option %i\n", opcode);
++	  return;
++	}
++      }
++      ptr+=opsize-2;
++      length-=opsize;
++    }
++  }
++}
++
++/* replace old TCP options with new ones
++   completely /stolen/ from mangle_packets() in ip_nat_ftp.c
++   blame Rusty's hamster if this is buggy or ours for the fragmentation stuff */
++static inline int pers_tcp_replace_opts(struct tcphdr *tcph,
++					const struct net_device *in,
++					const struct net_device *out,
++					struct sk_buff **pskb,
++					unsigned char *newopts,
++					unsigned int newoptlen)
++{
++  struct iphdr *iph = (*pskb)->nh.iph;
++  unsigned char *data;
++  int tcplen, oldiplen, newiplen, newtcplen;
++  int optlen;
++
++  /* the following doesn't handle well fragmented packets yet, so ignore them */
++  if (iph->frag_off & __constant_htons(IP_MF)) {
++    DEBUGP("PERS:  Not replacing options of first fragmented IP packet\n");
++    return IP_PERS_ERROR;
++  }
++  
++  optlen = tcph->doff * 4 - sizeof(struct tcphdr);
++  tcplen = (*pskb)->len - iph->ihl * 4;
++  newtcplen = tcplen - optlen + newoptlen;
++  oldiplen = (*pskb)->len;
++  newiplen = iph->ihl * 4 + newtcplen;
++
++  if (newiplen > 65535) {
++    if (net_ratelimit())
++      printk(KERN_WARNING "PERS: OPT: cheat: %u.%u.%u.%u:%u->%u.%u.%u.%u:%u ignored\n",
++	     NIPQUAD(iph->saddr), tcph->source,
++	     NIPQUAD(iph->daddr), tcph->dest);
++    return IP_PERS_ERROR;
++  }
++
++  if (newiplen > (*pskb)->len + skb_tailroom(*pskb)) {
++    struct sk_buff *newskb;
++    DEBUGP("PERS:   OPT: Need to enlarge skb\n");
++    newskb = skb_copy_expand(*pskb, skb_headroom(*pskb), newiplen, GFP_ATOMIC);
++    if (!newskb) {
++      if (net_ratelimit())
++	printk(KERN_WARNING "PERS: Out of memory for options buffer\n");
++      return IP_PERS_ERROR;
++    } else {
++      newskb->sk = (*pskb)->sk;
++      newskb->dev = (*pskb)->dev;
++      (*pskb)->sk = NULL;
++      (*pskb)->dev = NULL;
++      kfree_skb(*pskb);
++      *pskb = newskb;
++      iph = (*pskb)->nh.iph;
++      tcph = (void *)iph + iph->ihl*4;
++    }
++  }
++  
++  data = (void *)tcph + tcph->doff*4;
++  
++  /* do the real thing */
++  if (newoptlen != optlen)
++    memmove(data + newoptlen - optlen, data, tcplen - optlen - sizeof(struct tcphdr));
++  memcpy((unsigned char *)(tcph + 1), newopts, newoptlen);
++  
++  /* Resize packet. */
++  if (newiplen > (*pskb)->len) {
++    DEBUGP("PERS:   OPT: Extending packet from %u to %u bytes\n",
++	   oldiplen, newiplen);
++    skb_put(*pskb, newiplen - oldiplen);
++  } else if (newiplen < (*pskb)->len){
++    DEBUGP("PERS:   OPT: Shrinking packet from %u to %u bytes\n",
++	   oldiplen, newiplen);
++    skb_trim(*pskb, newiplen);
++  }
++
++  /* Fix IP and TCP headers */
++  iph->tot_len = htons(newiplen);
++  tcph->doff = (sizeof(struct tcphdr) + newoptlen) / 4;
++  (*pskb)->csum = csum_partial((char *)tcph + tcph->doff*4,
++			       newtcplen - tcph->doff * 4, 0);
++  tcph->check = 0;
++  tcph->check = tcp_v4_check(tcph, newtcplen, iph->saddr, iph->daddr,
++			     csum_partial((char *)tcph, tcph->doff*4,
++					  (*pskb)->csum));
++
++  /* Black magic here:
++     if we enlarge the packet beyond the MTU of the outgoing interface,
++     we need to have the local IP stack fragemnt it as the originating
++     TCP stack will not understand why it needs to resend an already
++     well sized packet. */
++  if (newiplen > oldiplen) {
++    /* If packet has been already routed, it is probably local,
++       so just have the kernel fragment it right away otherwise
++       it will reject it. */
++    if (out) {
++      if ((newiplen > out->mtu) && (oldiplen <= out->mtu)) {
++	/* allow more fragmentation and set IP id if needed */
++	iph->frag_off &= htons(~IP_DF);
++	if (iph->id == 0)
++	  ip_select_ident(iph, (*pskb)->dst, NULL);
++	DEBUGP("PERS:   OPT: Fragmenting IP packet exceeding MTU (%u).\n", out->mtu);
++	ip_fragment((*pskb), ip_finish_output);
++	return IP_PERS_KEEP;
++      }
++    } else {
++      /* if the packet would have been rejected */
++      if (iph->frag_off & __constant_htons(IP_DF)) {
++	/* compute the outgoing interface */
++	if ((*pskb)->dst == NULL) {
++	  if (!ip_route_input(*pskb, iph->daddr, iph->saddr, iph->tos, (struct net_device *)in))
++	    out = (*pskb)->dst->dev;
++	} else
++	  out = (*pskb)->dst->dev;
++	if (out && (newiplen > out->mtu) && (oldiplen <= out->mtu)) {
++	  DEBUGP("PERS:   OPT: Unsetting DF on IP packet exceeding MTU (%u).\n", out->mtu);
++	  iph->frag_off &= __constant_htons(~IP_DF);
++	}
++      }
++    }
++  }
++
++  /* fix IP checksum */
++  ip_send_check(iph);
++
++  return IP_PERS_OK;
++}
++
++/* reorder TCP options */
++unsigned int pers_tcp_reorder_opts(struct ip_pers * pers,
++				   struct tcphdr * tcph,
++				   const struct net_device *in,
++				   const struct net_device *out,
++				   struct sk_buff **pskb,
++				   struct ip_pers_tcp_info * odata)
++{
++  struct ip_pers_vm_state state;
++  unsigned int ret;
++  
++  if (pers->opt_prog.instr == NULL || pers->opt_prog.prog_len == 0) 
++    return IP_PERS_OK; /* nothing to do */
++
++  if (!odata->initialized)
++    pers_tcp_parse_opts(tcph, odata);
++
++  memset(&state, 0, sizeof(state));
++
++  /* run program and fill optout_buf */
++  DEBUGP("PERS:   Adding options:");
++  ret = pers_vm_run_prog(&(pers->opt_prog), in, out, (*pskb)->nh.iph, tcph,
++			 odata, pers, &state);
++
++  if (ret != IP_PERS_ACCEPT) {
++    DEBUGP("\n");
++    return IP_PERS_ERROR;
++  }
++
++  if (pers->opt_keep_unused) {
++    /* insert known options not handled in prog */
++    u_int8_t i;
++    
++    for (i=0; i < IP_PERS_MAX_OPTS; i++) {
++      if (odata->seen_opt[i] && !odata->used_opt[i]) {
++	if(pers_tcp_add_opt(i, odata->seen_opt[i],
++			    state.optout_buf, &state.optout_len)) {
++	  DEBUGP("*** error : not enough room to add option %i\n", i);
++	  return IP_PERS_ERROR;
++	}
++	DEBUGP(" %s", tcpopts[i]);
++      }
++    }
++  }
++
++  if (pers->opt_keep_unknown && odata->has_unknown_opts) {
++    /* insert unknown options that can't be handled in prog */
++    pers_tcp_add_unknown_opts(tcph, state.optout_buf, &state.optout_len);
++  }
++
++  pers_tcp_add_padding(state.optout_buf, &state.optout_len);
++  DEBUGP("\n");
++
++  /* reinitialize odata for potential later call since options changed */
++  odata->initialized = 0;
++  
++  /* replace old options with new ones and update sk_buff */
++  return pers_tcp_replace_opts(tcph, in, out, pskb, state.optout_buf, state.optout_len);
++}
++
++/* Update timestamp for local packet */
++unsigned int pers_tcp_timestamp_scale(struct iphdr *iph, struct tcphdr *th,
++				      struct ip_pers_conn_info *pci,
++				      struct ip_pers * pers,
++				      struct ip_pers_tcp_info * odata)
++{
++  u_int32_t diffs[2];
++  
++  if (!odata->initialized)
++    pers_tcp_parse_opts(th, odata);
++
++  if (!odata->seen_opt[TCPOPT_TIMESTAMP] || /* nothing to scale :) */
++      pci->timestamp_scale == 0) /* shouldn't happen.. */
++    return IP_PERS_OK;
++
++  /* in the following we assume timestamp was set by the local host
++     to its jiffies value, at HZ frequency, and that time between
++     writing the timestamp and going through us is negligible */
++  if (pers->tweak_type == IP_PERS_TWEAK_SRC) {
++    /* save the old timestamp */
++    memcpy(&(diffs[0]), odata->seen_opt[TCPOPT_TIMESTAMP] + 2, 4);
++
++    /* compute new one */
++    diffs[1] = htonl((jiffies * pci->timestamp_scale) / HZ);
++
++    DEBUGP("PERS:   Scaled timestamp on pkt from %u.%u.%u.%u:%u (%u -> %u)\n",
++	   NIPQUAD(iph->saddr), ntohs(th->source),
++	   ntohl(diffs[0]), ntohl(diffs[1]));
++
++    /* replace and update checksum */
++    memcpy(odata->seen_opt[TCPOPT_TIMESTAMP] + 2, &(diffs[1]), 4);
++    diffs[0] = ~diffs[0];
++    th->check = csum_fold(csum_partial((char *)diffs,
++				       sizeof(diffs),
++				       th->check^0xFFFF));
++  } else if (pers->tweak_type == IP_PERS_TWEAK_DST) {
++    /* save the old timestamp */
++    memcpy(&diffs, odata->seen_opt[TCPOPT_TIMESTAMP] + 6, 4);
++
++    /* compute the new one */
++    diffs[1] = htonl(jiffies +
++		     ((((jiffies * pci->timestamp_scale) / HZ) -
++		       ntohl(diffs[0])) * HZ) / pci->timestamp_scale);
++
++    DEBUGP("PERS:   Unscaled timestamp on pkt from %u.%u.%u.%u:%u (%u -> %u)\n",
++	   NIPQUAD(iph->saddr), ntohs(th->source),
++	   ntohl(diffs[0]), ntohl(diffs[1]));
++
++    /* replace and update checksum */
++    memcpy(odata->seen_opt[TCPOPT_TIMESTAMP] + 6, &(diffs[1]), 4);
++    diffs[0] = ~diffs[0];
++    th->check = csum_fold(csum_partial((char *)diffs,
++				       sizeof(diffs),
++				       th->check^0xFFFF));
++  }
++
++  return IP_PERS_OK;
++}
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_seq.c linux-2.4.31/net/ipv4/netfilter/ip_personality_seq.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_seq.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_seq.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,116 @@
++/*
++ * IP Personality
++ *   ip_personality_seq.c - tcp isn rewritting
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_seq.c,v 1.18 2001/07/19 23:41:50 g_roualland Exp $
++ *
++ */
++
++#include <net/tcp.h>
++#include <net/checksum.h>
++#include <linux/random.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++#include <linux/sched.h>
++
++#ifdef IP_PERS_DEBUG
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_SEQ) printk
++#else
++#define DEBUGP(format, args...)
++#endif
++
++/* rewrite packet */
++unsigned int pers_tcp_mangle_seq(struct iphdr *iph, struct tcphdr *th,
++				 struct ip_pers_conn_info *pci,
++				 struct ip_pers *pers,
++				 struct sk_buff **pskb)
++{
++  u_int32_t diffs[2];
++
++  if (pers->tweak_type == IP_PERS_TWEAK_SRC) {
++    diffs[0] = ~th->seq;
++    th->seq = htonl(ntohl(th->seq) + pci->seq_offset);
++    diffs[1] = th->seq;
++    th->check = csum_fold(csum_partial((char *)diffs,
++				       sizeof(diffs),
++				       th->check^0xFFFF));
++    DEBUGP("PERS:   Rewrite SEQ on pkt from %u.%u.%u.%u:%u (new seq=%u)\n",
++	   NIPQUAD(iph->saddr), ntohs(th->source), ntohl(th->seq));
++  } else if (pers->tweak_type == IP_PERS_TWEAK_DST) {
++    diffs[0] = ~th->ack_seq;
++    th->ack_seq = htonl(ntohl(th->ack_seq) - pci->seq_offset);
++    diffs[1] = th->ack_seq;
++    th->check = csum_fold(csum_partial((char *)diffs,
++				       sizeof(diffs),
++				       th->check^0xFFFF));
++    DEBUGP("PERS:   Rewrite ACK on pkt from %u.%u.%u.%u:%u (new ack=%u)\n",
++	   NIPQUAD(iph->saddr), ntohs(th->source), ntohl(th->ack_seq));
++  }
++
++  return IP_PERS_OK;
++}
++
++inline void pers_tcp_next_seq(struct iphdr *iph, struct tcphdr *th,
++			      struct ip_pers *pers) {
++  u_int32_t tmp;
++
++  switch (pers->isn_type) {
++  case IP_PERS_FIXED_INC:
++  case IP_PERS_BROKEN_INC:
++    pers->current_isn += pers->isn_param;
++    break;
++  case IP_PERS_RAND_INC:
++    get_random_bytes(&tmp, sizeof(tmp));
++    pers->current_isn += (pers->isn_param ? tmp % pers->isn_param : 0);
++    break;
++  case IP_PERS_RANDOM:
++    get_random_bytes(&tmp, sizeof(tmp));
++    pers->current_isn = tmp;
++    break;
++  case IP_PERS_BUILTIN:
++    pers->current_isn = secure_tcp_sequence_number(iph->daddr, iph->saddr,
++						   th->dest, th->source);
++    break;
++  case IP_PERS_TIME_INC:
++    if(pers->isn_param > 0) {
++      pers->current_isn += ((jiffies - pers->isn_jiffies) 
++			   * pers->isn_param) / HZ;
++      pers->isn_jiffies = jiffies;
++    }
++    break;    
++  case IP_PERS_ASIS:
++  default:
++    pers->current_isn = ntohl(th->seq);
++    break;
++  }
++}
++
++/* initialize a new mangled connexion */
++void pers_tcp_mangle_seq_new(struct iphdr *iph, struct tcphdr *th,
++			     struct ip_pers_conn_info *pci, struct ip_pers *pers) {
++  pers_tcp_next_seq(iph, th, pers);
++  pci->seq_offset = pers->current_isn - ntohl(th->seq);
++  DEBUGP("PERS:   NEW: Using ISN %u [offset %u] for"
++	 " %u.%u.%u.%u:%u => %u.%u.%u.%u:%u\n",
++	 pers->current_isn, pci->seq_offset, 
++	 NIPQUAD(iph->saddr), ntohs(th->source),
++	 NIPQUAD(iph->daddr), ntohs(th->dest));
++}
++
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_udp.c linux-2.4.31/net/ipv4/netfilter/ip_personality_udp.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_udp.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_udp.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,176 @@
++/*
++ * IP Personality
++ *   ip_personality_udp - UDP to closed port handling
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_udp.c,v 1.17 2002/04/27 21:20:20 c-d_hailfinger Exp $
++ *
++ */
++
++#include <linux/skbuff.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <net/sock.h>
++#include <net/route.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++
++#ifdef IP_PERS_DEBUG
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_UDP) printk
++#else
++#define DEBUGP(format, arg...)
++#endif
++
++#define MIN3(a,b,c) ( (a) < (b) ?                  \
++		      ( (a) < (c) ? (a) : (c) ) :  \
++		      ( (b) < (c) ? (b) : (c) ) )  \
++
++extern struct sock *udp_v4_lookup(u32 saddr, u16 sport, u32 daddr, u16 dport, int dif);
++
++static inline int pers_udp_dport_isopen(const struct net_device *in,
++					struct iphdr * iph,
++					struct udphdr * uh)
++{
++  struct sock *sk;
++
++  if(in == NULL)
++    return 0;
++
++  sk = udp_v4_lookup(iph->saddr, uh->source, iph->daddr, uh->dest, in->ifindex);
++  if(sk != NULL)
++    __sock_put(sk); /* because sock_hold() called in udp_v4_lookup() */
++
++  return sk != NULL;
++}
++
++#define UDP_MOD(var, mod)               \
++  if( (mod) != (IP_PERS_UDP_SAME) ) {   \
++    if( (mod) == (IP_PERS_UDP_ZERO) ) { \
++      var = 0;                          \
++    } else {                            \
++      var++; } }
++
++static inline unsigned int pers_send_punreach(const struct net_device *in,
++					      struct sk_buff **pskb,
++					      struct ip_pers *pers)
++{
++  struct iphdr *iph = (*pskb)->nh.iph;
++  struct iphdr *riph;
++  struct udphdr *uh;
++  struct icmphdr *icmph;
++  struct sk_buff * rskb;
++  struct rtable *rt;
++  unsigned int oldlen, len;
++
++  /* do we really need to do it ? :-) */
++  if(!pers->udp_info[IP_PERS_UDP_REPLY])
++    return IP_PERS_REJ; /* drop pkt */
++
++  /* route pkt */
++  if (ip_route_output(&rt, iph->saddr, iph->daddr,
++		      RT_TOS(pers->udp_info[IP_PERS_UDP_TOS]), 0)) {
++    if(net_ratelimit())
++      printk(KERN_WARNING "PERS: Can't route icmp reply to %u.%u.%u.%u\n",
++	     NIPQUAD(iph->saddr));
++    return IP_PERS_ERROR;
++  }
++
++  /* compute new packet length and adjust sk_buff if necessary */
++  oldlen = ntohs(iph->tot_len);
++  len = MIN3(pers->udp_info[IP_PERS_UDP_MAXLEN],
++	     sizeof(struct iphdr) + sizeof(struct icmphdr) + oldlen,
++	     rt->u.dst.pmtu); /* make sure we have no fragmentation */
++
++  /* make sure we have enough room for required info */
++  if (len < 2 * sizeof(struct iphdr) + sizeof(struct icmphdr) + sizeof(struct udphdr))
++    len = 2 * sizeof(struct iphdr) + sizeof(struct icmphdr) + sizeof(struct udphdr);
++  
++  rskb = alloc_skb(len + in->hard_header_len + 15, GFP_ATOMIC);
++  if (!rskb) {
++    if (net_ratelimit())
++      printk(KERN_WARNING "PERS: Can't allocate new icmp skb!\n");
++    return IP_PERS_ERROR;
++  }
++  rskb->pkt_type = PACKET_OUTGOING;
++  rskb->priority = (*pskb)->priority;
++  skb_reserve(rskb, (in->hard_header_len + 15) & ~15);
++  skb_put(rskb, len);
++  rskb->dst = &rt->u.dst;
++  rskb->dev = rskb->dst->dev;
++  rskb->sk = NULL;
++ 
++  /* mangle original UDP packet as specified by pers */
++  uh = (void *)iph + iph->ihl * 4;
++  if (!pers->udp_info[IP_PERS_UDP_RIPLEN_SAME])
++    iph->tot_len = htons(pers->udp_info[IP_PERS_UDP_RIPLEN]);
++  UDP_MOD(iph->id, pers->udp_info[IP_PERS_UDP_RIPID]);
++  UDP_MOD(iph->check, pers->udp_info[IP_PERS_UDP_RIPCSUM]);
++  UDP_MOD(uh->check, pers->udp_info[IP_PERS_UDP_RCSUM]);
++  if (!pers->udp_info[IP_PERS_UDP_RLEN_SAME])
++    uh->len = htons(pers->udp_info[IP_PERS_UDP_RLEN]);
++  {
++    char c = *((char*)(uh+1));
++    UDP_MOD(c, pers->udp_info[IP_PERS_UDP_RDATA]);
++    *((char*)(uh+1)) = c;
++  }
++
++  /* copy old packet in new skbuff */
++  riph = rskb->nh.iph = (struct iphdr *) rskb->data;
++  memcpy((void *)riph + sizeof(struct iphdr) + sizeof(struct icmphdr),
++	 iph, len - (sizeof(struct iphdr) + sizeof(struct icmphdr)));
++
++  /* now fill in the new IP and ICMP headers as specified by pers */
++  riph->version = 4;
++  riph->ihl = 5; /* plain IP header, no fancy option */
++  riph->tos = pers->udp_info[IP_PERS_UDP_TOS];
++  riph->tot_len = htons(len);
++  riph->frag_off = (pers->udp_info[IP_PERS_UDP_DF] ? __constant_htons(IP_DF) : 0);
++  riph->ttl = MAXTTL;
++  riph->protocol = IPPROTO_ICMP;
++  riph->check = 0;
++  riph->saddr = iph->daddr;
++  riph->daddr = iph->saddr;
++  ip_select_ident(riph, &rt->u.dst, NULL);
++  rskb->h.icmph = icmph = (void*) riph + sizeof(struct iphdr);
++  icmph->type = ICMP_DEST_UNREACH;
++  icmph->code = ICMP_PORT_UNREACH;
++  icmph->checksum = 0;
++  icmph->un.gateway = 0; /* zero this unused field */
++
++  /* compute all checksums */
++  ip_send_check(riph);
++  icmph->checksum = csum_fold(csum_partial((char*)icmph,
++					   len - sizeof(struct iphdr), 0));
++
++  DEBUGP("PERS:   Sending ICMP port unreachable message\n");
++  pers_send_local(rskb, *pskb);
++
++  return IP_PERS_REJ;
++}
++
++unsigned int pers_udp_check(struct ip_pers * pers,
++			    struct iphdr * iph,
++			    struct udphdr * uh,
++			    const struct net_device *in,
++			    const struct net_device *out,
++			    struct sk_buff **pskb) {
++  if(!pers_udp_dport_isopen(in, iph, uh))
++    return pers_send_punreach(in, pskb, pers);
++  return IP_PERS_OK;
++}
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_vm.c linux-2.4.31/net/ipv4/netfilter/ip_personality_vm.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_vm.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_vm.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,331 @@
++/*
++ * IP Personality
++ *   ip_personality_vm.c - Virtual machine (used for decoy/opt)
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_vm.c,v 1.13 2001/07/22 14:17:30 g_roualland Exp $
++ *
++ */
++
++#include <linux/skbuff.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <net/sock.h>
++#include <net/route.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++
++#ifdef IP_PERS_DEBUG
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_VM) printk
++
++static char * tcpopts[] = {
++  "eol",
++  "nop",
++  "mss",
++  "wscale",
++  "sackOK",
++  "sack",
++  "echo",
++  "echoreply",
++  "timestamp",
++  "pocOK",
++  "pocSP",
++  "CC",
++  "CC.NEW",
++  "CC.ECHO",
++  "acreq",
++  "acdata"
++};
++
++#else
++#define DEBUGP(format, args...) 
++#endif
++
++/* determine if we are listening for TCP connections on daddr:dport */
++static inline int pers_tcp_dport_isopen(const struct net_device *in,
++				 struct iphdr * iph,
++				 struct tcphdr * th)
++{
++  struct sock *sk;
++
++  if(in == NULL)
++    return 0;
++
++  sk = tcp_v4_lookup_listener(iph->daddr, ntohs(th->dest), in->ifindex);
++  if(sk != NULL)
++    __sock_put(sk); /* because sock_hold() called in tcp_v4_lookup_listener() */
++
++  return (sk != NULL);
++}
++
++/* add a TCP option */
++inline int pers_tcp_add_opt(unsigned char opt,
++			    u_int8_t * data,
++			    unsigned char *optbuf,
++			    unsigned int *optlen)
++{
++  unsigned char *optend = optbuf + *optlen;
++  unsigned char len;
++
++  if(*optlen + 1 >= IP_PERS_MAX_OPT_LEN)
++    return -1;
++  if(opt == TCPOPT_NOP || opt == TCPOPT_EOL) {
++    *(optend++) = opt;
++    (*optlen)++;
++    return 0;
++  }
++
++  if(!data)
++    return 0;
++
++  len = data[1];
++  if(*optlen + len >= IP_PERS_MAX_OPT_LEN)
++    return -1;
++  (*optlen) += len;
++  while(len--)
++    *(optend++) = *(data++);
++
++  return 0;
++}
++
++/*
++ * Syntax of instructions :
++ * 32 bits bitfield : 8 bits instruction, 24 bits data
++ * instructions : TEST, JMP, INS
++ * data : type of option, offset
++ */
++
++/* 'opcodes' for options are TCPOPT_* in net/tcp.h */
++/* codes for TCP flags are TCPCB_FLAG_* in net/tcp.h */
++unsigned int pers_vm_run_prog(struct ip_pers_prog * prog,
++			      const struct net_device *in,
++			      const struct net_device *out,
++			      struct iphdr * iph,
++			      struct tcphdr * th,
++			      struct ip_pers_tcp_info * odata,
++			      struct ip_pers *pers,
++			      struct ip_pers_vm_state * state)
++{
++  u_int32_t *ip;  /* instruction pointer */
++  u_int32_t *eoi; /* end of instructions */
++  u_int32_t cur;  /* current instruction, pointed to by ip */
++
++  /* run program */
++  ip = prog->instr;
++  eoi = ip + prog->prog_len;
++
++  while(ip < eoi) {
++    cur = *ip;
++    switch(cur & IP_PERS_INST) {
++    case IP_PERS_PUT:
++      switch(cur & IP_PERS_IOPT) {
++      case IP_PERS_PUT_COPY: {
++	unsigned char opcode = (unsigned char) (cur & IP_PERS_DATA);
++	
++	if(opcode >= IP_PERS_MAX_OPTS) {
++	  DEBUGP("*** bogus option %i\n", opcode);
++	  return IP_PERS_FAILED;
++	}
++	/* insert option (data) */
++	if(pers_tcp_add_opt(opcode, odata->seen_opt[opcode],
++			    state->optout_buf, &(state->optout_len))) {
++	  DEBUGP("*** error : not enough room to add option %i\n", opcode);
++	  return IP_PERS_FAILED;
++	}
++	odata->used_opt[opcode] = 1;
++	DEBUGP(" %s", tcpopts[opcode]);
++	break;
++      }
++      case IP_PERS_PUT_INS: {
++	unsigned char opcode = (unsigned char) (cur & IP_PERS_DATA);
++	unsigned char opbuf[20];
++	u_int16_t mss;
++	u_int32_t tstamp;
++	
++	switch(opcode) {
++	case TCPOPT_MSS:
++	  opbuf[0] = TCPOPT_MSS;
++	  opbuf[1] = TCPOLEN_MSS;
++	  mss = htons(state->mss);
++	  memcpy(opbuf+2, &mss, sizeof(mss));
++	  break;
++	case TCPOPT_WINDOW:
++	  opbuf[0] = TCPOPT_WINDOW;
++	  opbuf[1] = TCPOLEN_WINDOW;
++	  opbuf[3] = (unsigned char) state->wscale;
++	  break;
++	case TCPOPT_TIMESTAMP:
++	  opbuf[0] = TCPOPT_TIMESTAMP;
++	  opbuf[1] = TCPOLEN_TIMESTAMP;
++	  tstamp = htonl(state->timestamp);
++	  memcpy(opbuf + 2, &tstamp, 4);
++	  if (odata->seen_opt[TCPOPT_TIMESTAMP])
++	    memcpy(opbuf + 2 + 4,
++		   odata->seen_opt[TCPOPT_TIMESTAMP] + 2, 4);
++	  else {
++	    tstamp = 0;
++	    memcpy(opbuf + 2 + 4, &tstamp, 4);
++	  }
++	  break;
++	default:
++	  DEBUGP("*** found illegal option\n");
++	  opcode = TCPOPT_EOL;
++	  opbuf[0] = TCPOPT_EOL;
++	  break;
++	}
++	if(pers_tcp_add_opt(opcode, opbuf,
++			    state->optout_buf, &(state->optout_len))) {
++	  DEBUGP("*** error : not enough room to add option %i\n", opcode);
++	  return IP_PERS_FAILED;
++	}
++	DEBUGP(" %s", tcpopts[opcode]);
++        break;
++      }
++      default:
++	DEBUGP("*** found illegal instruction option\n");
++	break;
++      }
++      ip++;
++      break;
++    case IP_PERS_JMP:
++      /* JMP contains offset to next instruction */
++      ip = prog->instr + (cur & IP_PERS_DATA);
++      break;
++    case IP_PERS_TEST: {
++      /* TEST tests presence of option or TCP flag (data field) */
++      /* TEST is followed by JMP to 'else' part */
++      u_int32_t dfield = (u_int32_t) (cur & IP_PERS_DATA);
++
++      switch(cur & IP_PERS_IOPT) {
++      case IP_PERS_TEST_OPTION:
++	if(dfield >= IP_PERS_MAX_OPTS) {
++	  DEBUGP("*** bogus option %i\n", dfield);
++	  return IP_PERS_FAILED;
++	}
++	odata->used_opt[dfield] = 1;
++	if(odata->seen_opt[dfield])
++	  ip++;
++	break;
++      case IP_PERS_TEST_FLAG_ANY:
++	if( (odata->flags & dfield)
++	    || ((dfield == 0) && (odata->flags == 0)) )
++	  ip++;
++	break;
++      case IP_PERS_TEST_FLAG_ALL:
++	if( ( (odata->flags & dfield) == dfield)
++	    || ((dfield == 0) && (odata->flags == 0)) )
++	  ip++;
++	break;
++      case IP_PERS_TEST_LISTEN:
++	if (pers_tcp_dport_isopen(in, iph, th))
++	  ip++;
++	break;
++      case IP_PERS_TEST_ACK:
++	if (ntohl(th->ack_seq) == dfield)
++	  ip++;
++	break;
++      default:
++	DEBUGP("*** found illegal instruction option\n");
++	break;
++      }
++      ip++;
++      break;
++    }
++    case IP_PERS_SET: {
++      u_int32_t dfield = (u_int32_t) (cur & IP_PERS_DATA);
++      
++      switch ((cur & IP_PERS_IOPT) & ~IP_PERS_SET_FROM_THIS) {
++      case IP_PERS_SET_FLAGS:
++	state->flags = dfield;
++	break;
++      case IP_PERS_SET_ACK:
++	if (cur & IP_PERS_SET_FROM_THIS)
++	  state->ack = ntohl(th->seq) + dfield;
++	else
++	  state->ack = dfield;
++	break;
++      case IP_PERS_SET_DF:
++	if (cur & IP_PERS_SET_FROM_THIS)
++	  state->df = (((iph->frag_off & __constant_htons(IP_DF)) != 0) + dfield) % 2;
++	else
++	  state->df = (dfield != 0);
++	break;
++      case IP_PERS_SET_WIN:
++	if (cur & IP_PERS_SET_FROM_THIS)
++	  state->win = ntohs(th->window) + dfield;
++	else
++	  state->win = dfield;
++	break;
++      case IP_PERS_SET_MSS:
++	if (cur & IP_PERS_SET_FROM_THIS)
++	  state->mss = odata->mss + dfield;
++	else
++	  state->mss = dfield;
++	break;
++      case IP_PERS_SET_WSCALE:
++	if (cur & IP_PERS_SET_FROM_THIS)
++	  state->wscale = odata->wscale + dfield;
++	else
++	  state->wscale = dfield;
++	break;
++      case IP_PERS_SET_TIMESTAMP:
++	if (cur & IP_PERS_SET_FROM_THIS) {
++	  if (pers->timestamp_scale && pers->timestamp_scale != HZ)
++	    state->timestamp = (jiffies * pers->timestamp_scale) / HZ + dfield;
++	  else
++	    state->timestamp = jiffies + dfield;
++	} else
++	  state->timestamp = dfield;
++	break;
++      default:
++	DEBUGP("*** found illegal instruction option\n");
++	break;
++      }
++      ip++;
++      break;
++    }
++    case IP_PERS_RET:
++      switch(cur & IP_PERS_DATA) {
++      case IP_PERS_ACCEPT:
++      case IP_PERS_DROP:
++      case IP_PERS_REPLY:
++	return (cur & IP_PERS_DATA);
++	break;
++      default:
++	DEBUGP("*** found illegal instruction value\n");
++	break;
++      }
++      ip++;
++      break;
++    default:
++      /* illegal instruction */
++      DEBUGP("*** found illegal instruction\n");
++      return IP_PERS_FAILED;
++    }
++  }
++
++  if (ip != eoi) {
++    /* program did not end gracefully ! */
++    DEBUGP("PERS:   VM: program execution failed\n");
++    return IP_PERS_FAILED;
++  }
++  
++  return IP_PERS_ACCEPT;
++}
++
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_win.c linux-2.4.31/net/ipv4/netfilter/ip_personality_win.c
+--- linux-2.4.31.orig/net/ipv4/netfilter/ip_personality_win.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-2.4.31/net/ipv4/netfilter/ip_personality_win.c	2005-10-16 00:18:19.000000000 +0200
+@@ -0,0 +1,79 @@
++/*
++ * IP Personality
++ *   ip_personality_win.c - TCP window size rewritting
++ *
++ * Copyright (C) 2000, Gaël Roualland <gael.roualland@iname.com>
++ * Copyright (C) 2000, Jean-Marc Saffroy <saffroy@mail.com>   
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * $Id: ip_personality_win.c,v 1.8 2001/07/14 13:23:33 g_roualland Exp $
++ *
++ */
++
++#include <net/tcp.h>
++#include <net/checksum.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv4/ip_personality.h>
++
++#ifdef IP_PERS_DEBUG
++#define DEBUGP if (ip_pers_debug & IP_PERS_DEBUG_WIN) printk
++#else
++#define DEBUGP(format, args...)
++#endif
++
++/* rewrite packet */
++unsigned int pers_tcp_mangle_win(struct iphdr *iph, struct tcphdr *th,
++				 struct ip_pers_conn_info *pci,
++				 struct ip_pers *pers,
++				 struct sk_buff **pskb)
++{
++  u_int16_t diffs[2];
++  u_int16_t win = ntohs(th->window);
++  
++  diffs[0] = ~th->window;
++  if (win < pci->win_offset)
++    th->window = __constant_htons(0);
++  else
++    th->window = htons(win - pci->win_offset);
++  diffs[1] = th->window;
++  th->check = csum_fold(csum_partial((char *)diffs,
++				     sizeof(diffs),
++				     th->check^0xFFFF));
++  DEBUGP("PERS:   Rewrite WIN on pkt from %u.%u.%u.%u:%u (new win=%u)\n",
++	 NIPQUAD(iph->saddr), ntohs(th->source), ntohs(th->window));
++
++  return IP_PERS_OK;
++}
++
++/* initialize a new mangled connexion */
++void pers_tcp_mangle_win_new(struct iphdr *iph, struct tcphdr *th,
++			     struct ip_pers_conn_info *pci, struct ip_pers *pers,
++			     struct ip_pers_tcp_info * odata) {
++  u_int16_t win = ntohs(th->window);
++
++  if (!odata->initialized)
++    pers_tcp_parse_opts(th, odata);
++   
++  if ((pers->tcp_maxwin > 0) && (win > pers->tcp_maxwin) && !odata->wscale) {
++    pci->win_offset = win - pers->tcp_maxwin;
++    DEBUGP("PERS:   NEW: Using WIN %u [offset %u] for"
++	   " %u.%u.%u.%u:%u => %u.%u.%u.%u:%u\n",
++	   pers->tcp_maxwin, pci->win_offset, 
++	   NIPQUAD(iph->saddr), ntohs(th->source),
++	   NIPQUAD(iph->daddr), ntohs(th->dest));
++  }
++}
++
+diff -urN linux-2.4.31.orig/net/ipv4/netfilter/Makefile linux-2.4.31/net/ipv4/netfilter/Makefile
+--- linux-2.4.31.orig/net/ipv4/netfilter/Makefile	2003-08-25 13:44:44.000000000 +0200
++++ linux-2.4.31/net/ipv4/netfilter/Makefile	2005-10-16 00:18:19.000000000 +0200
+@@ -28,6 +28,9 @@
+ ipfwadm-objs		:= $(ip_nf_compat-objs) ipfwadm_core.o
+ ipchains-objs		:= $(ip_nf_compat-objs) ipchains_core.o
+ 
++# ip personality objects
++ip_nf_pers-objs		:= ip_personality_core.o ip_personality_seq.o ip_personality_opts.o ip_personality_win.o ip_personality_decoy.o ip_personality_vm.o ip_personality_udp.o ip_personality_ipid.o
++
+ # connection tracking
+ obj-$(CONFIG_IP_NF_CONNTRACK) += ip_conntrack.o
+ 
+@@ -114,6 +117,9 @@
+ 
+ obj-$(CONFIG_IP_NF_QUEUE) += ip_queue.o
+ 
++# ip personality
++obj-$(CONFIG_IP_NF_PERS) += ipt_PERS.o
++
+ include $(TOPDIR)/Rules.make
+ 
+ ip_conntrack.o: $(ip_conntrack-objs)
+@@ -127,3 +133,6 @@
+ 
+ ipchains.o: $(ipchains-objs)
+ 	$(LD) -r -o $@ $(ipchains-objs)
++
++ipt_PERS.o: $(ip_nf_pers-objs)
++	$(LD) -r -o $@ $(ip_nf_pers-objs)
+diff -urN linux-2.4.31.orig/net/netsyms.c linux-2.4.31/net/netsyms.c
+--- linux-2.4.31.orig/net/netsyms.c	2005-04-04 03:42:20.000000000 +0200
++++ linux-2.4.31/net/netsyms.c	2005-10-16 00:21:15.000000000 +0200
+@@ -60,7 +60,7 @@
+ 
+ extern struct net_proto_family inet_family_ops;
+ 
+-#if defined(CONFIG_IPV6) || defined (CONFIG_IPV6_MODULE) || defined (CONFIG_KHTTPD) || defined (CONFIG_KHTTPD_MODULE) || defined (CONFIG_IP_SCTP_MODULE)
++#if defined(CONFIG_IPV6) || defined (CONFIG_IPV6_MODULE) || defined (CONFIG_KHTTPD) || defined (CONFIG_KHTTPD_MODULE) || defined (CONFIG_IP_SCTP_MODULE)|| defined (CONFIG_IP_NF_PERS_MODULE)
+ #include <linux/in6.h>
+ #include <linux/icmpv6.h>
+ #include <net/ipv6.h>
+@@ -303,7 +303,7 @@
+ #endif
+ 
+ 
+-#if defined (CONFIG_IPV6_MODULE) || defined (CONFIG_KHTTPD) || defined (CONFIG_KHTTPD_MODULE) || defined (CONFIG_IP_SCTP_MODULE)
++#if defined (CONFIG_IPV6_MODULE) || defined (CONFIG_KHTTPD) || defined (CONFIG_KHTTPD_MODULE) || defined (CONFIG_IP_SCTP_MODULE) || defined(CONFIG_IP_NF_PERS_MODULE)
+ /* inet functions common to v4 and v6 */
+ EXPORT_SYMBOL(inet_release);
+ EXPORT_SYMBOL(inet_stream_connect);
+@@ -416,6 +416,11 @@
+ EXPORT_SYMBOL(secure_ipv6_id);
+ #endif
+ 
++#if defined(CONFIG_IP_NF_PERS_MODULE)
++extern struct sock *udp_v4_lookup(u32 saddr, u16 sport, u32 daddr, u16 dport, int dif);
++EXPORT_SYMBOL(udp_v4_lookup);
++#endif
++
+ #endif
+ 
+ EXPORT_SYMBOL(tcp_read_sock);

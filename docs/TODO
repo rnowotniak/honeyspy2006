@@ -1,0 +1,104 @@
+Nale¿a³oby wyodrêbniæ wszystkie podsystemy,
+	a Node dziedziczy³by z nich wszystkich:
+		p0f
+			enableP0f
+			disableP0f
+			setP0fOption
+		pcap
+		mac
+		fingerprint
+		services
+
+Skrypt wspolny dla modulow uslug
+	wyszukujacy ciagow ktore oznaczaja ataki (shellcody, %s itp)
+	z interfejsem do logowania
+
+interfejs webowy [raczej du¿a rzecz, w Template::Toolkit powinni¶my]
+	lista w postaci drzewka
+		mozliwosc przejscia do karty zarzadzania tylko jednym wezlem sieci
+
+		nazwa wezla
+		adres ip wezla sieci
+		zdolnosci danego wezla
+		aliasy ip wezla
+		falszowane adresy mac
+		falszowane charakterystyki stosow tcp/ip w zaleznosc od ip aliasu
+		reguly wylapywanych pakietow
+		dzialajace uslugi na wezle
+		przejscie do logow tego wezla
+
+		je¶li runOnNode i lokalnie -- shift i flaga local = 1
+
+przemodelowac trochê nasze uzycie wzorca Reactor
+	process_command:
+		_callFunction
+			wykonaæ odpowiedni± funkcjê
+				getName
+				info
+				...
+				runOnNode
+					jesli to wywolanie lokalne:
+						wywolac _callFunction i zwrocic jego rezultat
+					jesli nie ma takiego sensora:
+						zwrocic komunikat
+					ustawic handler, ktory wysle rozkaz do sensora,
+					gdy tylko bedzie to mozliwe:
+						ustawiæ handler obs³uguj±cy zwrocenie rezultaty przez sensor:
+					[*]	dodaæ w_handler odsylajacy odpowiedz do serwera ktory zlecil wykonanie rozkazu
+								odes³aæ 
+								usun±æ w_handler
+						wys³aæ rozkaz
+					zwrocic undefined
+			jesli funkcja zwrocila cokolwiek defined:
+				dodaæ w_handler odsylajacy odpowiedz do serwera ktory zlecil wykonanie rozkazu
+					odes³aæ 
+					usun±æ w_handler
+
+
+zrobiæ przesy³anie logów [mam wstêpny pomys³]
+zrobiæ wspólny interfejs do logowania zdarzeñ z poziomu na przyk³ad us³ug
+	Node otwiera jeden nienazwany potok, przez podprocesy obs³ugi klienta
+	dziedziczone s± jego deskryptory. Jeden z koñców jest w nim duplikowany
+	na deskryptor 3, drugi zamykany.
+	W procesie Node'a ustawiony jest hadler -- gdy na koñcu do czytania
+	potoku pojawiaj± siê dane, to jest wywo³ywana funkcja czytaj±ca
+	z niego dane i zapisuj±ca do logów.
+
+naprawiæ buga:
+	setServiceLimit 1
+	addService 0 tcp 5050 services/smtp
+	przekroczyæ limit
+	getServicesList
+	konsola wypisuje fragment logu zamiast liczby
+
+	to jednak nie bug
+	w petli czytania zdarzen w Sensor::read po prostu do konsoli
+	admina trafia log zdarzenia (przekroczenie limitu)
+
+uslugi
+	rozbudowaæ us³ugi [przyjemne, proste]
+	ssh
+		nale¿y rozwi±zaæ problem:
+			gdy siê logujê na sshd, i zrobiê ctrl-c, gdy mam podaæ has³o,
+			to skrypt nie ginie ale wisi
+            Jest te¿ to samo gdy przy --locked kilka razy sie poda zle haslo
+
+		musi byæ jaki¶ argument np -o, --os [zrobiæ za pomoc± getopt lub optparse]
+			ten argument ma okreslac jaki banner w ssh bedzie wyswietlany
+		argument -l [lub --locked] okre¶la czy mo¿na siê zalogowaæ na dowoln±
+			kombunacjê user/has³o
+		ma byæ jaki¶ hash w kodzie, który okre¶la dozwolone pary user->has³o
+			gdy nie uruchomiono z opcj± -l, to ten hash okre¶la jak siê mo¿na zalogowaæ
+			powinny to byæ na przyk³ad pary root/root test/test foo/bar oracle/oracle
+		powinno byæ co¶ w rodzaju hashu komenda -> string/funkcja
+			gdy zalogowany user wpisuje ,,komenda'', i temu kluczowi w hashu
+			odpowiada string, to nalezy mu go wypisaæ. Gdy temu kluczowi
+			odpowiada funkcja, to nale¿y j± wykonaæ i wypisac mu rezultat.
+			Mo¿e to s³u¿yæ to wypisania nieca³kiem sta³ych odpowiedzi na komendy.
+			na przyk³ad na komendê date móg³by siê pojawiaæ aktualny czas, a nie sta³y
+		z kodu powinna byæ wywalona mo¿liwo¶æ zalogowania siê przez uwierzytelnienie
+			przez klucz prywatny. tylko na haslo (tak jak opisane powy¿ej).
+			uwierzytelnianie kluczami s± nam do niczego.
+		ssh powinno byæ napisane do¶æ przejrzy¶cie i ³adnie, bo jak widac powy¿ej
+			ma dzia³aæ prosto, wiêc kod te¿ powinien byæ prosty
+

@@ -1,0 +1,374 @@
+
+role admin sA
+subject / rvka
+	/ rwcdmlxi
+
+role default G
+role_transitions admin
+subject / {
+	/				rx
+	/etc/grsec			h
+	/dev
+	/proc				rwx
+	/proc/kcore			h
+	/dev/grsec			h
+	/dev/urandom			r
+	/dev/random			r
+	/dev/zero			rw
+	/dev/input			rw
+	/dev/psaux			rw
+	/dev/null			rw
+	/dev/tty0			rw
+	/dev/tty1			rw
+	/dev/tty2			rw
+	/dev/tty3			rw
+	/dev/tty4			rw
+	/dev/tty5			rw
+	/dev/tty6			rw
+	/dev/tty7			rw
+	/dev/tty8			rw
+	/dev/console			rw
+	/dev/tty			rw
+	/dev/pts			rw
+	/dev/ptmx			rw
+	/dev/dsp			rw
+	/dev/mixer			rw
+	/dev/initctl			rw
+	/dev/fd0			r
+	/dev/cdrom			r
+	/dev/kmem			h
+	/dev/mem			h
+	/dev/port			h
+	/dev/kcore			h
+	/dev/boot			h
+	/dev/log 			h
+	/root				h
+	/proc/sys			h
+	/sys				h
+	/etc				rx
+	/usr/lib			rx
+	/usr/local/sbin			rx
+	/usr/local/lib			rx
+	/usr/X11R6/lib			rx
+	-CAP_SYS_MODULE
+	-CAP_SYS_RAWIO
+	-CAP_SYS_ADMIN
+	-CAP_SYS_BOOT
+	-CAP_NET_ADMIN
+	-CAP_NET_BIND_SERVICE
+ 	+CAP_SYS_TTY_CONFIG
+#	connect	disabled
+#	bind	disabled
+}
+
+subject /home/rob/HoneySpy-svn/main.pl o {
+	/				h
+	/bin				h
+	/bin/bash			x
+	/dev				h
+	/dev/null			
+	/dev/urandom			r
+	/etc				h
+	/etc/ld.so.cache		r
+	/etc/nsswitch.conf		r
+	/etc/perl			
+	/etc/protocols			r
+	/home				h
+	/home/rob/HoneySpy-svn		rx
+	/lib				rx
+	/sbin				x
+	/usr				h
+	/usr/bin			h
+	/usr/bin/perl			x
+	/usr/lib			rx
+	/usr/local			rx
+	/usr/share			r
+	/proc				
+	/proc/sys/kernel/version	r
+	/proc/kcore			h
+	/proc/bus			h
+	-CAP_ALL
+	+CAP_DAC_OVERRIDE
+	+CAP_NET_BIND_SERVICE
+	+CAP_NET_RAW
+	+CAP_NET_ADMIN
+	bind 127.0.0.1/32:9000 stream tcp
+	bind 192.168.66.99/32:25 stream tcp
+	bind 192.168.66.100/32:110 stream tcp
+	bind 192.168.66.101/32:8080 stream tcp
+	bind 192.168.66.101/32:79 stream tcp
+	connect	disabled
+}
+
+subject /home/rob/HoneySpy-svn/services/pop3 o {
+	/				h
+	/dev				h
+	/dev/urandom			r
+	/etc				h
+	/etc/ld.so.cache		r
+	/etc/perl			
+	/home				h
+	/home/rob/HoneySpy-svn/services/pop3	r
+	/lib				rx
+	/usr				h
+	/usr/bin			h
+	/usr/bin/perl			x
+	/usr/lib			rx
+	/usr/local			h
+	/usr/local/lib			
+	/usr/local/lib/perl/5.8.4	
+	/usr/local/share/perl/5.8.4	
+	/usr/share			r
+	/proc				
+	/proc/sys/kernel/version	r
+	/proc/kcore			h
+	/proc/bus			h
+	-CAP_ALL
+	+CAP_DAC_OVERRIDE
+	bind	disabled
+	connect	disabled
+}
+
+subject /home/rob/HoneySpy-svn/services/smtp o {
+	/				h
+	/dev				h
+	/dev/urandom			r
+	/etc				h
+	/etc/ld.so.cache		r
+	/etc/perl			
+	/home				h
+	/home/rob/HoneySpy-svn/services/smtp	r
+	/lib				rx
+	/usr				h
+	/usr/bin			h
+	/usr/bin/perl			x
+	/usr/lib			rx
+	/usr/local			h
+	/usr/local/lib			
+	/usr/local/lib/perl/5.8.4	
+	/usr/local/share/perl/5.8.4	
+	/usr/share			r
+	/proc				
+	/proc/sys/kernel/version	r
+	/proc/kcore			h
+	/proc/bus			h
+	-CAP_ALL
+	+CAP_DAC_OVERRIDE
+	bind	disabled
+	connect	disabled
+}
+
+subject /sbin/arptables o {
+	/				h
+	/etc				h
+	/etc/ld.so.cache		r
+	/lib				h
+	/lib/ld-2.3.2.so		x
+	/lib/libc-2.3.2.so		rx
+	/proc				h
+	/proc/sys/kernel/modprobe	r
+	/sbin				h
+	/sbin/arptables			x
+	/sbin/modprobe			x
+	-CAP_ALL
+	+CAP_NET_ADMIN
+	+CAP_NET_RAW
+	bind	disabled
+	connect 0.0.0.0/32:0 raw_sock raw_proto
+}
+
+subject /sbin/ifconfig o {
+	/				h
+	/etc				h
+	/etc/ld.so.cache		r
+	/lib				h
+	/lib/ld-2.3.2.so		x
+	/lib/libc-2.3.2.so		rx
+	/proc				
+	/proc/net			r
+	/proc/kcore			h
+	/proc/bus			h
+	/sbin				h
+	/sbin/ifconfig			x
+	/sbin/modprobe			x
+	-CAP_ALL
+	+CAP_NET_ADMIN
+	+CAP_SYS_MODULE
+	bind 0.0.0.0/32:0 dgram ip
+	connect	disabled
+}
+
+subject /sbin/insmod.modutils o {
+	/				h
+	/etc				h
+	/etc/ld.so.cache		r
+	/etc/modules.conf		r
+	/proc				h
+	/proc/ksyms			r
+	/proc/modules			r
+	/proc/sys/kernel/tainted	rw
+	/sbin				h
+	/sbin/insmod.modutils		x
+	/usr				h
+	/usr/share/zoneinfo		r
+	/var				h
+	/var/log/ksymoops		wc
+	/lib				rx
+	-CAP_ALL
+	+CAP_SYS_MODULE
+	bind	disabled
+	connect	disabled
+}
+
+subject /sbin/modprobe o {
+	/				h
+	/etc				h
+	/etc/ld.so.cache		r
+	/lib				h
+	/lib/ld-2.3.2.so		x
+	/lib/libc-2.3.2.so		rx
+	/sbin				h
+	/sbin/insmod.modutils		x
+	/sbin/modprobe			x
+	-CAP_ALL
+	+CAP_SYS_MODULE
+	bind	disabled
+	connect	disabled
+}
+
+subject /sbin/route o {
+	/				h
+	/etc				h
+	/etc/ld.so.cache		r
+	/lib				h
+	/lib/ld-2.3.2.so		x
+	/lib/libc-2.3.2.so		rx
+	/proc				h
+	/proc/net/route			r
+	/sbin				h
+	/sbin/route			x
+	-CAP_ALL
+	+CAP_NET_ADMIN
+	bind 0.0.0.0/32:0 dgram ip
+	connect	disabled
+}
+
+subject /usr/local/sbin/ebtables o {
+	/				h
+	/etc				h
+	/etc/ethertypes			r
+	/etc/ld.so.cache		r
+	/lib				h
+	/lib/ld-2.3.2.so		x
+	/lib/libc-2.3.2.so		rx
+	/proc				h
+	/proc/sys/kernel/modprobe	r
+	/sbin				h
+	/sbin/modprobe			x
+	/usr				h
+	/usr/lib/ebtables		rx
+	/usr/local/sbin/ebtables	x
+	-CAP_ALL
+	+CAP_NET_RAW
+	bind	disabled
+	connect 0.0.0.0/32:0 raw_sock igmp
+}
+
+subject /usr/local/sbin/iptables o {
+	/				h
+	/dev				h
+	/dev/urandom			r
+	/etc				h
+	/etc/ld.so.cache		r
+	/home				h
+	/home/rob/HoneySpy-svn/fingerprints/freebsd.conf	r
+	/home/rob/HoneySpy-svn/fingerprints/win2k.conf	r
+	/home/rob/HoneySpy-svn/fingerprints/win9x.conf	r
+	/lib				rx
+	/sbin				h
+	/sbin/modprobe			x
+	/usr				h
+	/usr/local/lib/iptables/libipt_PERS.so	rx
+	/usr/local/lib/iptables/libipt_standard.so	rx
+	/usr/local/sbin/iptables	x
+	-CAP_ALL
+	+CAP_DAC_OVERRIDE
+	+CAP_NET_ADMIN
+	+CAP_NET_RAW
+	bind	disabled
+	connect 0.0.0.0/32:0 raw_sock raw_proto
+}
+
+subject /usr/sbin/brctl o {
+	/				h
+	/etc				h
+	/etc/ld.so.cache		r
+	/lib				h
+	/lib/ld-2.3.2.so		x
+	/lib/libc-2.3.2.so		rx
+	/lib/libsysfs.so.1.0.2		rx
+	/sbin				h
+	/sbin/modprobe			x
+	/usr				h
+	/usr/sbin/brctl			x
+	/proc				r
+	/proc/kcore			h
+	/proc/sys			h
+	/proc/bus			h
+	-CAP_ALL
+	+CAP_NET_ADMIN
+	bind 0.0.0.0/32:0 dgram ip
+	connect	disabled
+}
+
+# role rob u
+# role_allow_ip	0.0.0.0/32
+# subject /  {
+# 	/				h
+# 	/bin				h
+# 	/bin/bash			x
+# 	/bin/cat			x
+# 	/bin/uname			x
+# 	/dev				h
+# 	/dev/null			rw
+# 	/dev/tty			rw
+# 	/etc				r
+# 	/etc/grsec			h
+# 	/etc/ssh			h
+# 	/etc/shadow			h
+# 	/etc/shadow-			h
+# 	/etc/gshadow			h
+# 	/etc/gshadow-			h
+# 	/etc/ppp/chap-secrets		h
+# 	/etc/ppp/pap-secrets		h
+# 	/etc/samba/smbpasswd		h
+# 	/lib				rx
+# 	/usr				h
+# 	/usr/X11R6			rx
+# 	/usr/bin			x
+# 	/usr/share			r
+# 	/usr/lib			rx
+# 	/var				h
+# 	/var/mail/rob			
+# 	/home				
+# 	/home/rob			rxwcd
+# 	/proc				
+# 	/proc/meminfo			r
+# 	/proc/kcore			h
+# 	/proc/sys			h
+# 	/proc/bus			h
+# 	/tmp				rwcd
+# 	-CAP_ALL
+# 	bind	disabled
+# 	connect	disabled
+# }
+# 
+# 
+# subject /usr/X11R6/bin/XFree86 o {
+# 	/				h
+# 	-CAP_ALL
+# 	+CAP_SYS_TTY_CONFIG
+# 	bind	disabled
+# 	connect	disabled
+# }
+# 

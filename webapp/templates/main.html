@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+	<head>
+		<meta http-equiv="content-type" content="text/html; charset=iso-8859-2">
+		<meta name="generator" content="vi improved 6.3.1">
+		<title>HoneySpy Web interface</title>
+		<link rel="Stylesheet" href="style.css" type="text/css" />
+	</head>
+	<body>
+		<h1>HoneySpy Web Interface</h1>
+
+		<table border class="sensor_table">
+			<tr>
+				<td colspan="2">[% name %]</td>
+			</tr>
+			<tr>
+				<td>Abilities</td>
+				<td>
+				[% FOREACH a = abilities %]
+					[% a %]
+				[% END %]
+				</td>
+			</tr>
+			<tr>
+				<td>IP Aliases</td>
+				<td>
+					[% FOREACH i = ipaliases %]
+					[% i %]
+					[% END %]
+				</td>
+			</tr>
+			<tr>
+				<td>MAC addresses</td>
+				<td>
+					<table border>
+						[% FOREACH m = macs.keys %]
+						<tr><td>[% m %]</td><td>[% macs.$m %]</td></tr>
+						[% END %]
+					</table>
+				</td>
+			</tr>
+			<tr>
+				<td>PCAP Filter rules</td>
+				<td>
+					<table border>
+						[% FOREACH f = filters %]
+						<tr><td>[% f %]</td></tr>
+						[% END %]
+					</table>
+				</td>
+			</tr>
+			<tr>
+				<td>Running services</td>
+				<td>
+					<table border>
+						[% FOREACH m = services.keys %]
+						<tr><td>[% m %]</td><td>[% services.$m %]</td></tr>
+						[% END %]
+					</table>
+				</td>
+			</tr>
+		</table>
+
+		<br/>
+
+		[% IF command %]
+
+		<table id="command_result">
+			<tr><td class="first_cell">Command result:</td></tr>
+			<tr><td>[% result %]</td></tr>
+		</table>
+		<br/>
+
+		[% END %]
+
+		<form method="post" action=".">
+			<textarea cols="70" lines="3" name="command">[% command %]</textarea><br/>
+			<input type="submit" name="submit" value="Execute"/>
+			<input type="reset" value="Reset"/>
+			<input type="hidden" name="server" value="[% server %]"/>
+			<input type="hidden" name="pass" value="[% password %]"/>
+		</form>
+
+		Available commands:
+		<ul>
+
+			<li>getAbilities
+			</li>
+			<li>addService &lt;address&gt; &lt;proto&gt; &lt;port&gt; &lt;script&gt; [&lt;args&gt;]
+			</li>
+
+			<li>delService &lt;address&gt; &lt;proto&gt; &lt;port&gt;
+			</li>
+			<li>enableP0f
+			</li>
+			<li>disableP0f
+			</li>
+			<li>addFilter &lt;filter_rule&gt;
+
+			</li>
+			<li>delFilter &lt;rule_number&gt;
+			</li>
+			<li>replaceFilters &lt;replace_filter&gt;
+			</li>
+			<li>getFilter
+			</li>
+
+			<li>getFilters
+			</li>
+			<li>setMAC &lt;address&gt; &lt;MAC&gt;
+			</li>
+			<li>getMAC [&lt;address&gt;]
+			</li>
+			<li>cleanMAC
+			</li>
+
+			<li>setFingerprint &lt;address&gt; &lt;os_identifier&gt;
+			</li>
+			<li>delFingerprint &lt;address&gt;
+			</li>
+			<li>addIPAlias &lt;address&gt;
+
+			</li>
+			<li>delIPAlias &lt;address&gt;
+			</li>
+
+		</ul>
+
+	</body>
+</html>
+
+
